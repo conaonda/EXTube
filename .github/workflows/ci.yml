@@ -16,8 +16,15 @@ jobs:
         with:
           python-version: "3.11"
 
-      - name: Install dependencies
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Install Python dependencies
         run: pip install -e ".[dev]"
+
+      - name: Install frontend dependencies
+        run: cd src/viewer && npm ci
 
       - name: Lint
         run: make lint
