@@ -13,7 +13,9 @@ from threading import Lock
 from typing import Any
 
 from fastapi import FastAPI, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 from src.downloader import validate_youtube_url
@@ -24,7 +26,20 @@ logger = logging.getLogger(__name__)
 
 app = FastAPI(title="EXTube API", version="0.1.0")
 
+# CORS 설정 (개발 환경)
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=[
+        "http://localhost:5173",
+        "http://localhost:3000",
+    ],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
 OUTPUT_BASE_DIR = Path("data/jobs")
+STATIC_DIR = Path(__file__).resolve().parent.parent / "viewer" / "dist"
 
 _MAX_WORKERS = 4
 
@@ -227,6 +242,15 @@ def get_job_result(job_id: str) -> FileResponse:
 
     return FileResponse(
         path=str(ply_resolved),
-        media_type="application/octet-stream",
+        media_type="application/x-ply",
         filename="points.ply",
     )
+
+
+def mount_static_files() -> None:
+    """프론트엔드 빌드 결과물을 정적 파일로 서빙한다."""
+    if STATIC_DIR.is_dir():
+        app.mount("/", StaticFiles(directory=str(STATIC_DIR), html=True), name="static")
+
+
+mount_static_files()
