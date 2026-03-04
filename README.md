@@ -15,7 +15,31 @@
 
 ## 설치 및 실행
 
-> 기술 스택 확정 후 업데이트 예정
+### Docker (CPU)
+
+```bash
+cd docker
+docker compose up --build
+```
+
+### Docker (GPU)
+
+NVIDIA GPU와 [NVIDIA Container Toolkit](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/install-guide.html)이 필요합니다.
+
+```bash
+cd docker
+docker compose --profile gpu up --build app-gpu
+```
+
+GPU 모드에서는 COLMAP이 CUDA 가속으로 빌드되어 Dense MVS 등 GPU 의존 작업이 가능합니다.
+
+### 로컬 개발
+
+```bash
+make dev        # 개발 의존성 포함 설치
+make lint       # 린트
+make test       # 테스트
+```
 
 ## 업무 스킴
 
