@@ -22,6 +22,5 @@
 이 프로젝트는 [TeamWork](https://github.com/conaonda/TeamWork) 업무 스킴을 따릅니다.
 스프린트 자동화 실행:
 ```bash
-cd /path/to/TeamWork
-./scripts/sprint.sh --repo conaonda/EXTube --sprints 3
+/path/to/TeamWork/scripts/sprint.sh --repo conaonda/EXTube --workdir ~/git --sprints 3
 ```
