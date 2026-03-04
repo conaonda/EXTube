@@ -68,9 +68,7 @@ class Pipeline:
         # 1. 다운로드
         logger.info("1/3 영상 다운로드 중: %s", url)
         download_dir = self.output_dir / "download"
-        download_result = download_video(
-            url, download_dir, max_height=self.max_height
-        )
+        download_result = download_video(url, download_dir, max_height=self.max_height)
         logger.info(
             "다운로드 완료: %s (%s)",
             download_result.title,

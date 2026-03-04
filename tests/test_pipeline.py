@@ -143,16 +143,23 @@ class TestCLI:
         """커스텀 인자가 올바르게 파싱된다."""
         from src.__main__ import parse_args
 
-        args = parse_args([
-            "https://youtu.be/abc12345678",
-            "-o", "/tmp/out",
-            "--max-height", "720",
-            "--frame-interval", "2.0",
-            "--blur-threshold", "50.0",
-            "--camera-model", "PINHOLE",
-            "--no-ply",
-            "-v",
-        ])
+        args = parse_args(
+            [
+                "https://youtu.be/abc12345678",
+                "-o",
+                "/tmp/out",
+                "--max-height",
+                "720",
+                "--frame-interval",
+                "2.0",
+                "--blur-threshold",
+                "50.0",
+                "--camera-model",
+                "PINHOLE",
+                "--no-ply",
+                "-v",
+            ]
+        )
         assert args.output_dir == Path("/tmp/out")
         assert args.max_height == 720
         assert args.frame_interval == 2.0
@@ -178,10 +185,13 @@ class TestCLI:
         )
         mock_pipeline_cls.return_value = mock_pipeline
 
-        result = main([
-            "https://www.youtube.com/watch?v=dQw4w9WgXcQ",
-            "-o", str(tmp_path),
-        ])
+        result = main(
+            [
+                "https://www.youtube.com/watch?v=dQw4w9WgXcQ",
+                "-o",
+                str(tmp_path),
+            ]
+        )
         assert result == 0
 
     @patch("src.__main__.Pipeline")
