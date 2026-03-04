@@ -138,9 +138,7 @@ def _parse_reconstruction_stats(
 
     colmap model_analyzer를 사용하여 정확한 통계를 가져온다.
     """
-    model_dirs = sorted(
-        d for d in sparse_dir.iterdir() if d.is_dir()
-    )
+    model_dirs = sorted(d for d in sparse_dir.iterdir() if d.is_dir())
     if not model_dirs:
         return {"num_registered": 0, "num_points3d": 0}
 

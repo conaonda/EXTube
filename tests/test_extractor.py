@@ -69,7 +69,9 @@ class TestFilterBlurryFrames:
     @patch("src.extractor.extractor.compute_blur_score")
     def test_filter_by_score(self, mock_blur, sample_frames: list[Path]):
         mock_blur.side_effect = [1000.0, 2000.0, 3000.0, 4000.0, 5000.0]
-        passed, filtered, scores = filter_blurry_frames(sample_frames, blur_threshold=2500.0)
+        passed, filtered, scores = filter_blurry_frames(
+            sample_frames, blur_threshold=2500.0
+        )
         assert len(passed) == 3
         assert len(filtered) == 2
         assert len(scores) == 5
@@ -77,7 +79,9 @@ class TestFilterBlurryFrames:
     @patch("src.extractor.extractor.compute_blur_score")
     def test_all_pass(self, mock_blur, sample_frames: list[Path]):
         mock_blur.return_value = 500.0
-        passed, filtered, scores = filter_blurry_frames(sample_frames, blur_threshold=0.0)
+        passed, filtered, scores = filter_blurry_frames(
+            sample_frames, blur_threshold=0.0
+        )
         assert len(passed) == 5
         assert len(filtered) == 0
 
