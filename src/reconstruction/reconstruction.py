@@ -23,7 +23,11 @@ class ReconstructionResult:
     steps_completed: list[str] = field(default_factory=list)
 
 
-def _run_colmap(command: str, args: list[str]) -> subprocess.CompletedProcess:
+def _run_colmap(
+    command: str,
+    args: list[str],
+    timeout: int = 3600,
+) -> subprocess.CompletedProcess:
     """COLMAP CLI 명령을 실행한다."""
     cmd = ["colmap", command, *args]
     result = subprocess.run(
@@ -31,6 +35,7 @@ def _run_colmap(command: str, args: list[str]) -> subprocess.CompletedProcess:
         capture_output=True,
         text=True,
         check=False,
+        timeout=timeout,
     )
     if result.returncode != 0:
         raise RuntimeError(
@@ -125,25 +130,39 @@ def export_to_ply(
     )
 
 
-def _parse_reconstruction_stats(sparse_dir: Path) -> dict:
-    """Sparse 복원 결과에서 통계를 파싱한다."""
-    model_dirs = sorted(sparse_dir.iterdir())
+def _parse_reconstruction_stats(
+    sparse_dir: Path,
+    timeout: int = 60,
+) -> dict:
+    """Sparse 복원 결과에서 통계를 파싱한다.
+
+    colmap model_analyzer를 사용하여 정확한 통계를 가져온다.
+    """
+    model_dirs = sorted(
+        d for d in sparse_dir.iterdir() if d.is_dir()
+    )
     if not model_dirs:
         return {"num_registered": 0, "num_points3d": 0}
 
-    model_dir = model_dirs[0]  # 첫 번째 모델 사용
+    model_dir = model_dirs[0]
 
     num_registered = 0
     num_points3d = 0
 
-    images_file = model_dir / "images.bin"
-    points_file = model_dir / "points3D.bin"
-
-    if images_file.exists():
-        # images.bin 파일 크기 기반 추정 (정확한 파싱은 pycolmap 필요)
-        num_registered = max(1, images_file.stat().st_size // 256)
-    if points_file.exists():
-        num_points3d = max(1, points_file.stat().st_size // 64)
+    try:
+        result = subprocess.run(
+            ["colmap", "model_analyzer", "--path", str(model_dir)],
+            capture_output=True,
+            text=True,
+            timeout=timeout,
+        )
+        for line in result.stdout.split("\n"):
+            if "Registered images" in line:
+                num_registered = int(line.split("=")[-1].strip())
+            elif "Points" in line and "3D" in line:
+                num_points3d = int(line.split("=")[-1].strip())
+    except (subprocess.TimeoutExpired, ValueError, OSError):
+        pass
 
     return {
         "num_registered": num_registered,
@@ -157,6 +176,7 @@ def reconstruct(
     workspace_dir: Path,
     camera_model: str = "SIMPLE_RADIAL",
     export_ply: bool = True,
+    timeout: int = 3600,
 ) -> ReconstructionResult:
     """전체 COLMAP SfM 파이프라인을 실행한다.
 
@@ -165,6 +185,7 @@ def reconstruct(
         workspace_dir: 작업 공간 디렉토리 (생성됨)
         camera_model: COLMAP 카메라 모델
         export_ply: PLY 파일 내보내기 여부
+        timeout: COLMAP 명령 타임아웃 (초, 기본 3600)
 
     Returns:
         ReconstructionResult: 복원 결과
@@ -181,7 +202,10 @@ def reconstruct(
     database_path = workspace_dir / "database.db"
     sparse_dir = workspace_dir / "sparse"
 
-    images = list(image_dir.glob("*.jpg")) + list(image_dir.glob("*.png"))
+    image_extensions = ("*.jpg", "*.jpeg", "*.png", "*.JPG", "*.JPEG", "*.PNG")
+    images = []
+    for ext in image_extensions:
+        images.extend(image_dir.glob(ext))
     num_images = len(images)
 
     if num_images < 2:
@@ -201,17 +225,16 @@ def reconstruct(
     sparse_reconstructor(database_path, image_dir, sparse_dir)
     steps_completed.append("sparse_reconstruction")
 
+    # 통계 파싱 (1회만 호출)
+    stats = _parse_reconstruction_stats(sparse_dir)
+
     # 4. PLY export
     if export_ply:
-        stats = _parse_reconstruction_stats(sparse_dir)
         model_dir = stats.get("model_dir")
         if model_dir:
             ply_path = workspace_dir / "points.ply"
             export_to_ply(Path(model_dir), ply_path)
             steps_completed.append("ply_export")
-
-    # 통계 파싱
-    stats = _parse_reconstruction_stats(sparse_dir)
 
     # 메타데이터 저장
     metadata = {
