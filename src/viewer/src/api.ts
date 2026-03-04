@@ -41,3 +41,20 @@ export async function getJob(jobId: string): Promise<Job> {
 export function getResultUrl(jobId: string): string {
   return `${API_BASE}/jobs/${jobId}/result`
 }
+
+export interface ProgressEvent {
+  stage: string
+  percent: number
+  message: string
+}
+
+export interface StreamEvent {
+  status: Job['status']
+  progress: ProgressEvent | null
+  result?: JobResult | null
+  error?: string | null
+}
+
+export function getStreamUrl(jobId: string): string {
+  return `${API_BASE}/jobs/${jobId}/stream`
+}

@@ -3,14 +3,16 @@ import Layout from './components/Layout'
 import ViewerCanvas from './components/ViewerCanvas'
 import JobForm from './components/JobForm'
 import JobStatusBar from './components/JobStatus'
-import { createJob, getJob, getResultUrl } from './api'
-import type { Job } from './api'
+import { createJob, getJob, getResultUrl, getStreamUrl } from './api'
+import type { Job, ProgressEvent, StreamEvent } from './api'
 
 export default function App() {
   const [job, setJob] = useState<Job | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [plyUrl, setPlyUrl] = useState<string | null>(null)
+  const [progress, setProgress] = useState<ProgressEvent | null>(null)
   const pollingRef = useRef<ReturnType<typeof setInterval> | null>(null)
+  const eventSourceRef = useRef<EventSource | null>(null)
 
   const stopPolling = useCallback(() => {
     if (pollingRef.current) {
@@ -19,41 +21,98 @@ export default function App() {
     }
   }, [])
 
-  const handleSubmit = useCallback(
-    async (url: string) => {
-      setError(null)
-      setPlyUrl(null)
-      stopPolling()
+  const stopStream = useCallback(() => {
+    if (eventSourceRef.current) {
+      eventSourceRef.current.close()
+      eventSourceRef.current = null
+    }
+  }, [])
 
-      try {
-        const created = await createJob(url)
-        setJob(created)
-
-        pollingRef.current = setInterval(async () => {
-          try {
-            const updated = await getJob(created.id)
-            setJob(updated)
-            if (updated.status === 'completed') {
-              stopPolling()
-              setPlyUrl(getResultUrl(updated.id))
-            } else if (updated.status === 'failed') {
-              stopPolling()
-            }
-          } catch {
+  const startPollingFallback = useCallback(
+    (jobId: string) => {
+      pollingRef.current = setInterval(async () => {
+        try {
+          const updated = await getJob(jobId)
+          setJob(updated)
+          if (updated.status === 'completed') {
             stopPolling()
-            setError('작업 상태 조회 실패')
+            setPlyUrl(getResultUrl(updated.id))
+          } else if (updated.status === 'failed') {
+            stopPolling()
           }
-        }, 2000)
-      } catch (err) {
-        setError(err instanceof Error ? err.message : '작업 생성 실패')
-      }
+        } catch {
+          stopPolling()
+          setError('작업 상태 조회 실패')
+        }
+      }, 2000)
     },
     [stopPolling],
   )
 
+  const startStream = useCallback(
+    (jobId: string) => {
+      const es = new EventSource(getStreamUrl(jobId))
+      eventSourceRef.current = es
+
+      es.onmessage = (event) => {
+        try {
+          const data: StreamEvent = JSON.parse(event.data)
+          setProgress(data.progress)
+          setJob((prev) =>
+            prev
+              ? {
+                  ...prev,
+                  status: data.status,
+                  result: data.result ?? prev.result,
+                  error: data.error ?? prev.error,
+                }
+              : prev,
+          )
+          if (data.status === 'completed') {
+            stopStream()
+            setPlyUrl(getResultUrl(jobId))
+          } else if (data.status === 'failed') {
+            stopStream()
+          }
+        } catch {
+          // ignore parse errors
+        }
+      }
+
+      es.onerror = () => {
+        stopStream()
+        // Fallback to polling
+        startPollingFallback(jobId)
+      }
+    },
+    [stopStream, startPollingFallback],
+  )
+
+  const handleSubmit = useCallback(
+    async (url: string) => {
+      setError(null)
+      setPlyUrl(null)
+      setProgress(null)
+      stopPolling()
+      stopStream()
+
+      try {
+        const created = await createJob(url)
+        setJob(created)
+        startStream(created.id)
+      } catch (err) {
+        setError(err instanceof Error ? err.message : '작업 생성 실패')
+      }
+    },
+    [stopPolling, stopStream, startStream],
+  )
+
   useEffect(() => {
-    return stopPolling
-  }, [stopPolling])
+    return () => {
+      stopPolling()
+      stopStream()
+    }
+  }, [stopPolling, stopStream])
 
   const isProcessing =
     job !== null && (job.status === 'pending' || job.status === 'processing')
@@ -86,7 +145,7 @@ export default function App() {
             {error}
           </div>
         )}
-        {job && <JobStatusBar job={job} />}
+        {job && <JobStatusBar job={job} progress={progress} />}
       </div>
       <ViewerCanvas plyUrl={plyUrl} />
     </Layout>

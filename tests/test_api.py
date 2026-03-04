@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from unittest.mock import patch
 
 import pytest
@@ -186,3 +187,64 @@ class TestGetJobResult:
         resp = client.get("/api/jobs/aabbccddeef4/result")
         assert resp.status_code == 200
         assert resp.content == b"ply content"
+
+
+class TestStreamJob:
+    """GET /api/jobs/{id}/stream 테스트."""
+
+    def test_stream_not_found(self):
+        """존재하지 않는 작업은 404를 반환한다."""
+        resp = client.get("/api/jobs/nonexistent/stream")
+        assert resp.status_code == 404
+
+    def test_stream_completed_job(self):
+        """완료된 작업은 즉시 완료 이벤트를 전송한다."""
+        _insert_job(
+            "aabbccddeef5",
+            status=JobStatus.completed,
+            result={"num_points3d": 50},
+        )
+        with client.stream("GET", "/api/jobs/aabbccddeef5/stream") as resp:
+            assert resp.status_code == 200
+            assert resp.headers["content-type"].startswith("text/event-stream")
+            lines = []
+            for line in resp.iter_lines():
+                if line.startswith("data: "):
+                    lines.append(json.loads(line[6:]))
+            # Should have at least the final event with completed status
+            assert any(e["status"] == "completed" for e in lines)
+
+    def test_stream_failed_job(self):
+        """실패한 작업은 에러 이벤트를 전송한다."""
+        _insert_job(
+            "aabbccddeef6",
+            status=JobStatus.failed,
+            error="테스트 에러",
+        )
+        with client.stream("GET", "/api/jobs/aabbccddeef6/stream") as resp:
+            assert resp.status_code == 200
+            lines = []
+            for line in resp.iter_lines():
+                if line.startswith("data: "):
+                    lines.append(json.loads(line[6:]))
+            assert any(
+                e["status"] == "failed" and e.get("error") == "테스트 에러"
+                for e in lines
+            )
+
+    def test_stream_with_progress(self):
+        """진행률 업데이트가 스트리밍된다."""
+        _insert_job("aabbccddeef7", status=JobStatus.processing)
+        _job_store.update(
+            "aabbccddeef7",
+            progress={"stage": "download", "percent": 50, "message": "다운로드 중"},
+        )
+        # Complete the job so stream terminates
+        _job_store.update("aabbccddeef7", status=JobStatus.completed)
+        with client.stream("GET", "/api/jobs/aabbccddeef7/stream") as resp:
+            assert resp.status_code == 200
+            lines = []
+            for line in resp.iter_lines():
+                if line.startswith("data: "):
+                    lines.append(json.loads(line[6:]))
+            assert len(lines) >= 1

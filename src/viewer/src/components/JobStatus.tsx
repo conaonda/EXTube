@@ -1,4 +1,4 @@
-import type { Job } from '../api'
+import type { Job, ProgressEvent } from '../api'
 
 const STATUS_LABELS: Record<string, string> = {
   pending: '대기 중...',
@@ -7,11 +7,18 @@ const STATUS_LABELS: Record<string, string> = {
   failed: '실패',
 }
 
-interface JobStatusProps {
-  job: Job
+const STAGE_LABELS: Record<string, string> = {
+  download: '다운로드',
+  extraction: '프레임 추출',
+  reconstruction: '3D 복원',
 }
 
-export default function JobStatus({ job }: JobStatusProps) {
+interface JobStatusProps {
+  job: Job
+  progress?: ProgressEvent | null
+}
+
+export default function JobStatus({ job, progress }: JobStatusProps) {
   const label = STATUS_LABELS[job.status] ?? job.status
 
   return (
@@ -24,6 +31,35 @@ export default function JobStatus({ job }: JobStatusProps) {
       }}
     >
       <strong>{label}</strong>
+      {progress && job.status === 'processing' && (
+        <span style={{ marginLeft: '0.5rem' }}>
+          <span style={{ color: '#333' }}>
+            {STAGE_LABELS[progress.stage] ?? progress.stage}
+          </span>
+          <span style={{ color: '#666', marginLeft: '0.25rem' }}>
+            — {progress.message}
+          </span>
+          <div
+            style={{
+              marginTop: '0.25rem',
+              height: '4px',
+              background: '#dbeafe',
+              borderRadius: '2px',
+              overflow: 'hidden',
+            }}
+          >
+            <div
+              style={{
+                height: '100%',
+                width: `${progress.percent}%`,
+                background: '#3b82f6',
+                borderRadius: '2px',
+                transition: 'width 0.3s ease',
+              }}
+            />
+          </div>
+        </span>
+      )}
       {job.error && (
         <span style={{ color: '#dc2626', marginLeft: '0.5rem' }}>
           {job.error}
