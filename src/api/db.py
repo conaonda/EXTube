@@ -51,12 +51,14 @@ class JobStore:
             "ply_path": None,
             "created_at": time.time(),
         }
+        sql = (
+            "INSERT INTO jobs"
+            " (id, status, url, error, result, ply_path, created_at)"
+            " VALUES (:id, :status, :url, :error, :result,"
+            " :ply_path, :created_at)"
+        )
         with self._lock:
-            self._conn.execute(
-                "INSERT INTO jobs (id, status, url, error, result, ply_path, created_at) "
-                "VALUES (:id, :status, :url, :error, :result, :ply_path, :created_at)",
-                job,
-            )
+            self._conn.execute(sql, job)
             self._conn.commit()
         return self._row_to_dict(job)
 
