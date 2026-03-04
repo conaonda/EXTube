@@ -135,8 +135,9 @@ class TestReconstruct:
         with pytest.raises(ValueError, match="최소 2장"):
             reconstruct(image_dir, workspace)
 
+    @patch("src.reconstruction.reconstruction.subprocess.run")
     @patch("src.reconstruction.reconstruction._run_colmap")
-    def test_full_pipeline(self, mock_colmap, tmp_path):
+    def test_full_pipeline(self, mock_colmap, mock_subprocess, tmp_path):
         image_dir = tmp_path / "images"
         image_dir.mkdir()
         for i in range(5):
@@ -146,7 +147,6 @@ class TestReconstruct:
         # COLMAP 명령 실행을 시뮬레이션
         def side_effect(command, args):
             if command == "feature_extractor":
-                # feature_extractor가 database.db를 생성
                 db = workspace / "database.db"
                 db.parent.mkdir(parents=True, exist_ok=True)
                 db.touch()
@@ -160,10 +160,18 @@ class TestReconstruct:
 
         mock_colmap.side_effect = side_effect
 
+        # model_analyzer 출력 시뮬레이션
+        mock_subprocess.return_value = MagicMock(
+            returncode=0,
+            stdout="Registered images = 5\nPoints 3D = 120\n",
+        )
+
         result = reconstruct(image_dir, workspace, export_ply=True)
 
         assert isinstance(result, ReconstructionResult)
         assert result.num_images == 5
+        assert result.num_registered == 5
+        assert result.num_points3d == 120
         assert result.workspace_dir == workspace
         assert "feature_extraction" in result.steps_completed
         assert "exhaustive_matching" in result.steps_completed
@@ -174,8 +182,9 @@ class TestReconstruct:
         metadata_path = workspace / "reconstruction_metadata.json"
         assert metadata_path.exists()
 
+    @patch("src.reconstruction.reconstruction.subprocess.run")
     @patch("src.reconstruction.reconstruction._run_colmap")
-    def test_pipeline_without_ply_export(self, mock_colmap, tmp_path):
+    def test_pipeline_without_ply_export(self, mock_colmap, mock_subprocess, tmp_path):
         image_dir = tmp_path / "images"
         image_dir.mkdir()
         for i in range(3):
@@ -195,6 +204,11 @@ class TestReconstruct:
             return MagicMock(returncode=0)
 
         mock_colmap.side_effect = side_effect
+
+        mock_subprocess.return_value = MagicMock(
+            returncode=0,
+            stdout="Registered images = 3\nPoints 3D = 50\n",
+        )
 
         result = reconstruct(image_dir, workspace, export_ply=False)
 
