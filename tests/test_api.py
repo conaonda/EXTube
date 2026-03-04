@@ -6,7 +6,7 @@ from unittest.mock import patch
 
 import pytest
 from fastapi.testclient import TestClient
-from src.api.main import JobStatus, _jobs, _jobs_lock, app
+from src.api.main import JobStatus, _job_store, app
 
 client = TestClient(app)
 
@@ -14,11 +14,36 @@ client = TestClient(app)
 @pytest.fixture(autouse=True)
 def _clear_jobs():
     """각 테스트 전후로 작업 저장소를 초기화한다."""
-    with _jobs_lock:
-        _jobs.clear()
+    _job_store._conn.execute("DELETE FROM jobs")
+    _job_store._conn.commit()
     yield
-    with _jobs_lock:
-        _jobs.clear()
+    _job_store._conn.execute("DELETE FROM jobs")
+    _job_store._conn.commit()
+
+
+def _insert_job(job_id: str, **fields) -> None:
+    """테스트용 Job을 DB에 직접 삽입한다."""
+    defaults = {
+        "status": JobStatus.pending,
+        "url": "https://youtu.be/dQw4w9WgXcQ",
+        "error": None,
+        "result": None,
+    }
+    defaults.update(fields)
+    _job_store.create(job_id, defaults["status"], defaults["url"])
+    update_fields = {}
+    if defaults["error"] is not None:
+        update_fields["error"] = defaults["error"]
+    if defaults["result"] is not None:
+        update_fields["result"] = defaults["result"]
+    if defaults.get("ply_path") is not None:
+        update_fields["ply_path"] = defaults["ply_path"]
+    # Update status if not pending (create always sets the given status, so we
+    # only need to update if extra fields exist)
+    if defaults["status"] != JobStatus.pending:
+        update_fields["status"] = defaults["status"]
+    if update_fields:
+        _job_store.update(job_id, **update_fields)
 
 
 class TestCreateJob:
@@ -41,7 +66,7 @@ class TestCreateJob:
         data = resp.json()
         assert data["status"] == "pending"
         assert data["url"] == ("https://www.youtube.com/watch?v=dQw4w9WgXcQ")
-        assert data["id"] in _jobs
+        assert _job_store.get(data["id"]) is not None
 
     @patch("src.api.main._run_pipeline")
     def test_custom_params(self, mock_run):
@@ -60,7 +85,7 @@ class TestCreateJob:
         call_args = mock_run.call_args
         job_id = call_args[0][0]
         params = call_args[0][1]
-        assert job_id in _jobs
+        assert _job_store.get(job_id) is not None
         assert params.url == "https://youtu.be/dQw4w9WgXcQ"
         assert params.max_height == 720
         assert params.frame_interval == 2.0
@@ -102,14 +127,12 @@ class TestGetJob:
 
     def test_get_completed_job(self):
         """완료된 작업 조회."""
-        _jobs["test123"] = {
-            "id": "test123",
-            "status": JobStatus.completed,
-            "url": "https://youtu.be/dQw4w9WgXcQ",
-            "error": None,
-            "result": {"num_points3d": 100},
-        }
-        resp = client.get("/api/jobs/test123")
+        _insert_job(
+            "aabbccddeeff",
+            status=JobStatus.completed,
+            result={"num_points3d": 100},
+        )
+        resp = client.get("/api/jobs/aabbccddeeff")
         assert resp.status_code == 200
         data = resp.json()
         assert data["status"] == "completed"
@@ -117,14 +140,12 @@ class TestGetJob:
 
     def test_get_failed_job(self):
         """실패한 작업 조회."""
-        _jobs["fail123"] = {
-            "id": "fail123",
-            "status": JobStatus.failed,
-            "url": "https://youtu.be/dQw4w9WgXcQ",
-            "error": "COLMAP 실패",
-            "result": None,
-        }
-        resp = client.get("/api/jobs/fail123")
+        _insert_job(
+            "aabbccddeef1",
+            status=JobStatus.failed,
+            error="COLMAP 실패",
+        )
+        resp = client.get("/api/jobs/aabbccddeef1")
         assert resp.status_code == 200
         assert resp.json()["error"] == "COLMAP 실패"
 
@@ -139,23 +160,15 @@ class TestGetJobResult:
 
     def test_not_completed(self):
         """완료되지 않은 작업은 400을 반환한다."""
-        _jobs["pending1"] = {
-            "id": "pending1",
-            "status": JobStatus.processing,
-            "url": "https://youtu.be/dQw4w9WgXcQ",
-        }
-        resp = client.get("/api/jobs/pending1/result")
+        _insert_job("aabbccddeef2", status=JobStatus.processing)
+        resp = client.get("/api/jobs/aabbccddeef2/result")
         assert resp.status_code == 400
         assert "완료되지 않았습니다" in resp.json()["detail"]
 
     def test_ply_not_found(self):
         """PLY 파일이 없으면 404를 반환한다."""
-        _jobs["done1"] = {
-            "id": "done1",
-            "status": JobStatus.completed,
-            "url": "https://youtu.be/dQw4w9WgXcQ",
-        }
-        resp = client.get("/api/jobs/done1/result")
+        _insert_job("aabbccddeef3", status=JobStatus.completed)
+        resp = client.get("/api/jobs/aabbccddeef3/result")
         assert resp.status_code == 404
 
     @patch("src.api.main.OUTPUT_BASE_DIR")
@@ -165,12 +178,11 @@ class TestGetJobResult:
         ply_file = tmp_path / "points.ply"
         ply_file.write_text("ply content")
 
-        _jobs["done2"] = {
-            "id": "done2",
-            "status": JobStatus.completed,
-            "url": "https://youtu.be/dQw4w9WgXcQ",
-            "ply_path": str(ply_file),
-        }
-        resp = client.get("/api/jobs/done2/result")
+        _insert_job(
+            "aabbccddeef4",
+            status=JobStatus.completed,
+            ply_path=str(ply_file),
+        )
+        resp = client.get("/api/jobs/aabbccddeef4/result")
         assert resp.status_code == 200
         assert resp.content == b"ply content"

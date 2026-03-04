@@ -26,3 +26,4 @@ dist/
 
 # Environment
 .env
+data/jobs.db

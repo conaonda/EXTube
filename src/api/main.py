@@ -6,10 +6,11 @@ import atexit
 import logging
 import re
 import uuid
+from collections.abc import AsyncIterator
 from concurrent.futures import ThreadPoolExecutor
+from contextlib import asynccontextmanager
 from enum import StrEnum
 from pathlib import Path
-from threading import Lock
 from typing import Any
 
 from fastapi import FastAPI, HTTPException
@@ -18,13 +19,24 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
+from src.api.db import JobStore
 from src.downloader import validate_youtube_url
 from src.extractor import extract_and_filter
 from src.reconstruction import reconstruct
 
 logger = logging.getLogger(__name__)
 
-app = FastAPI(title="EXTube API", version="0.1.0")
+
+@asynccontextmanager
+async def _lifespan(application: FastAPI) -> AsyncIterator[None]:
+    """서버 시작 시 만료된 Job을 정리한다."""
+    deleted = _job_store.cleanup_expired(OUTPUT_BASE_DIR)
+    if deleted:
+        logger.info("만료된 Job %d개 정리됨", deleted)
+    yield
+
+
+app = FastAPI(title="EXTube API", version="0.2.0", lifespan=_lifespan)
 
 # CORS 설정 (개발 환경)
 app.add_middleware(
@@ -73,9 +85,8 @@ class JobResponse(BaseModel):
     result: dict[str, Any] | None = None
 
 
-# 인메모리 작업 저장소 (Lock으로 동시 접근 보호)
-_jobs: dict[str, dict[str, Any]] = {}
-_jobs_lock = Lock()
+# Job 저장소 (SQLite)
+_job_store = JobStore()
 
 # ThreadPoolExecutor로 동시 작업 수 제한
 _executor = ThreadPoolExecutor(max_workers=_MAX_WORKERS)
@@ -103,9 +114,7 @@ def _run_pipeline(job_id: str, params: JobCreate) -> None:
     """백그라운드에서 파이프라인을 실행한다."""
     from src.downloader import download_video
 
-    with _jobs_lock:
-        job = _jobs[job_id]
-        job["status"] = JobStatus.processing
+    _job_store.update(job_id, status=JobStatus.processing)
 
     job_dir = _validate_job_path(job_id)
 
@@ -139,24 +148,22 @@ def _run_pipeline(job_id: str, params: JobCreate) -> None:
         ply_resolved = ply_path.resolve()
         base_resolved = OUTPUT_BASE_DIR.resolve()
 
-        with _jobs_lock:
-            job["status"] = JobStatus.completed
-            job["result"] = {
-                "video_title": download_result.title,
-                "total_frames": extraction_result.total_extracted,
-                "filtered_frames": extraction_result.total_filtered,
-                "num_registered": reconstruction_result.num_registered,
-                "num_points3d": reconstruction_result.num_points3d,
-                "steps_completed": reconstruction_result.steps_completed,
-            }
-            if ply_path.exists() and str(ply_resolved).startswith(str(base_resolved)):
-                job["ply_path"] = str(ply_resolved)
+        result = {
+            "video_title": download_result.title,
+            "total_frames": extraction_result.total_extracted,
+            "filtered_frames": extraction_result.total_filtered,
+            "num_registered": reconstruction_result.num_registered,
+            "num_points3d": reconstruction_result.num_points3d,
+            "steps_completed": reconstruction_result.steps_completed,
+        }
+        updates: dict[str, Any] = {"status": JobStatus.completed, "result": result}
+        if ply_path.exists() and str(ply_resolved).startswith(str(base_resolved)):
+            updates["ply_path"] = str(ply_resolved)
+        _job_store.update(job_id, **updates)
 
     except Exception as e:
         logger.exception("작업 %s 실패", job_id)
-        with _jobs_lock:
-            job["status"] = JobStatus.failed
-            job["error"] = str(e)
+        _job_store.update(job_id, status=JobStatus.failed, error=str(e))
 
 
 @app.post("/api/jobs", response_model=JobResponse, status_code=201)
@@ -170,14 +177,7 @@ def create_job(body: JobCreate) -> JobResponse:
         )
 
     job_id = uuid.uuid4().hex[:12]
-    with _jobs_lock:
-        _jobs[job_id] = {
-            "id": job_id,
-            "status": JobStatus.pending,
-            "url": body.url,
-            "error": None,
-            "result": None,
-        }
+    _job_store.create(job_id, JobStatus.pending, body.url)
 
     _executor.submit(_run_pipeline, job_id, body)
 
@@ -191,8 +191,7 @@ def create_job(body: JobCreate) -> JobResponse:
 @app.get("/api/jobs/{job_id}", response_model=JobResponse)
 def get_job(job_id: str) -> JobResponse:
     """작업 상태를 조회한다."""
-    with _jobs_lock:
-        job = _jobs.get(job_id)
+    job = _job_store.get(job_id)
     if job is None:
         raise HTTPException(status_code=404, detail="작업을 찾을 수 없습니다")
 
@@ -208,8 +207,7 @@ def get_job(job_id: str) -> JobResponse:
 @app.get("/api/jobs/{job_id}/result")
 def get_job_result(job_id: str) -> FileResponse:
     """복원 결과물(PLY)을 다운로드한다."""
-    with _jobs_lock:
-        job = _jobs.get(job_id)
+    job = _job_store.get(job_id)
     if job is None:
         raise HTTPException(status_code=404, detail="작업을 찾을 수 없습니다")
 
