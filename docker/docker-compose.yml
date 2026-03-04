@@ -9,3 +9,24 @@ services:
       - ..:/app
     environment:
       - PYTHONUNBUFFERED=1
+
+  app-gpu:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.gpu
+    ports:
+      - "8000:8000"
+    volumes:
+      - ..:/app
+    environment:
+      - PYTHONUNBUFFERED=1
+      - NVIDIA_VISIBLE_DEVICES=all
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    profiles:
+      - gpu
