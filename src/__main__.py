@@ -57,6 +57,17 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         help="PLY 파일 내보내기 비활성화",
     )
     parser.add_argument(
+        "--dense",
+        action="store_true",
+        help="Dense reconstruction (MVS) 활성화",
+    )
+    parser.add_argument(
+        "--max-image-size",
+        type=int,
+        default=0,
+        help="Dense reconstruction 최대 이미지 크기 (0=제한 없음)",
+    )
+    parser.add_argument(
         "-v",
         "--verbose",
         action="store_true",
@@ -82,6 +93,8 @@ def main(argv: list[str] | None = None) -> int:
         blur_threshold=args.blur_threshold,
         camera_model=args.camera_model,
         export_ply=not args.no_ply,
+        dense=args.dense,
+        max_image_size=args.max_image_size,
     )
 
     try:
@@ -101,6 +114,12 @@ def main(argv: list[str] | None = None) -> int:
     ply_path = result.reconstruction.workspace_dir / "points.ply"
     if ply_path.exists():
         print(f"  PLY 파일: {ply_path}")
+
+    if result.reconstruction.num_dense_points is not None:
+        print(f"  Dense 포인트: {result.reconstruction.num_dense_points}개")
+        dense_ply = result.reconstruction.workspace_dir / "dense_points.ply"
+        if dense_ply.exists():
+            print(f"  Dense PLY 파일: {dense_ply}")
 
     return 0
 

@@ -39,6 +39,8 @@ class Pipeline:
         blur_threshold: float = 100.0,
         camera_model: str = "SIMPLE_RADIAL",
         export_ply: bool = True,
+        dense: bool = False,
+        max_image_size: int = 0,
     ) -> None:
         self.output_dir = output_dir
         self.max_height = max_height
@@ -46,6 +48,8 @@ class Pipeline:
         self.blur_threshold = blur_threshold
         self.camera_model = camera_model
         self.export_ply = export_ply
+        self.dense = dense
+        self.max_image_size = max_image_size
 
     def run(self, url: str) -> PipelineResult:
         """전체 파이프라인을 실행한다.
@@ -94,7 +98,8 @@ class Pipeline:
         )
 
         # 3. 3D 복원
-        logger.info("3/3 3D 복원 중...")
+        mode = "sparse+dense" if self.dense else "sparse"
+        logger.info("3/3 3D 복원 중 (%s)...", mode)
         reconstruction_dir = self.output_dir / "reconstruction"
         frames_dir = extraction_dir / "frames"
         reconstruction_result = reconstruct(
@@ -102,6 +107,8 @@ class Pipeline:
             reconstruction_dir,
             camera_model=self.camera_model,
             export_ply=self.export_ply,
+            dense=self.dense,
+            max_image_size=self.max_image_size,
         )
         logger.info(
             "3D 복원 완료: %d/%d 이미지 등록, %d개 3D 포인트",
