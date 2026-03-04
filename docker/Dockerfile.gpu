@@ -1,8 +1,10 @@
-FROM nvidia/cuda:12.2.2-devel-ubuntu22.04
+# ============================================================
+# Stage 1: Build COLMAP with CUDA support
+# ============================================================
+FROM nvidia/cuda:12.2.2-devel-ubuntu22.04 AS builder
 
 ENV DEBIAN_FRONTEND=noninteractive
 
-# System dependencies + COLMAP
 RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential \
     cmake \
@@ -19,26 +21,56 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     qtbase5-dev \
     libqt5opengl5-dev \
     libceres-dev \
-    ffmpeg \
-    python3.11 \
-    python3.11-dev \
-    python3.11-venv \
-    python3-pip \
-    wget \
     && rm -rf /var/lib/apt/lists/*
 
-# Build COLMAP with CUDA support
 RUN git clone --branch 3.9.1 --depth 1 https://github.com/colmap/colmap.git /tmp/colmap && \
     cd /tmp/colmap && \
     mkdir build && cd build && \
     cmake .. \
         -DCMAKE_BUILD_TYPE=Release \
+        -DCMAKE_INSTALL_PREFIX=/usr/local \
         -DCMAKE_CUDA_ARCHITECTURES="70;75;80;86;89;90" \
         -DCUDA_ENABLED=ON \
         -DGUI_ENABLED=OFF && \
     make -j"$(nproc)" && \
     make install && \
     rm -rf /tmp/colmap
+
+# ============================================================
+# Stage 2: Runtime image with only necessary components
+# ============================================================
+FROM nvidia/cuda:12.2.2-runtime-ubuntu22.04
+
+ENV DEBIAN_FRONTEND=noninteractive
+
+# Runtime dependencies for COLMAP + app
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    libboost-filesystem1.74.0 \
+    libboost-program-options1.74.0 \
+    libboost-graph1.74.0 \
+    libboost-regex1.74.0 \
+    libeigen3-dev \
+    libflann1.9 \
+    libfreeimage3 \
+    libgoogle-glog0v5 \
+    libsqlite3-0 \
+    libcgal-dev \
+    libglew2.2 \
+    libqt5core5a \
+    libqt5opengl5 \
+    libceres2 \
+    ffmpeg \
+    python3.11 \
+    python3.11-dev \
+    python3.11-venv \
+    python3-pip \
+    && rm -rf /var/lib/apt/lists/*
+
+# Copy COLMAP binaries and libraries from builder
+COPY --from=builder /usr/local/bin/colmap /usr/local/bin/colmap
+COPY --from=builder /usr/local/lib/libcolmap* /usr/local/lib/
+COPY --from=builder /usr/local/share/colmap /usr/local/share/colmap
+RUN ldconfig
 
 # Set python3.11 as default
 RUN update-alternatives --install /usr/bin/python3 python3 /usr/bin/python3.11 1 && \
