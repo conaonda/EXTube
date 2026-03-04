@@ -41,6 +41,8 @@ class Pipeline:
         export_ply: bool = True,
         dense: bool = False,
         max_image_size: int = 0,
+        gaussian_splatting: bool = False,
+        gs_max_iterations: int | None = None,
     ) -> None:
         self.output_dir = output_dir
         self.max_height = max_height
@@ -50,6 +52,8 @@ class Pipeline:
         self.export_ply = export_ply
         self.dense = dense
         self.max_image_size = max_image_size
+        self.gaussian_splatting = gaussian_splatting
+        self.gs_max_iterations = gs_max_iterations
 
     def run(self, url: str) -> PipelineResult:
         """전체 파이프라인을 실행한다.
@@ -98,7 +102,12 @@ class Pipeline:
         )
 
         # 3. 3D 복원
-        mode = "sparse+dense" if self.dense else "sparse"
+        modes = ["sparse"]
+        if self.dense:
+            modes.append("dense")
+        if self.gaussian_splatting:
+            modes.append("3DGS")
+        mode = "+".join(modes)
         logger.info("3/3 3D 복원 중 (%s)...", mode)
         reconstruction_dir = self.output_dir / "reconstruction"
         frames_dir = extraction_dir / "frames"
@@ -109,6 +118,8 @@ class Pipeline:
             export_ply=self.export_ply,
             dense=self.dense,
             max_image_size=self.max_image_size,
+            gaussian_splatting=self.gaussian_splatting,
+            gs_max_iterations=self.gs_max_iterations,
         )
         logger.info(
             "3D 복원 완료: %d/%d 이미지 등록, %d개 3D 포인트",
