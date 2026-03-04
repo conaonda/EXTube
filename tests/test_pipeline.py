@@ -111,6 +111,8 @@ class TestPipeline:
             output_dir / "reconstruction",
             camera_model="PINHOLE",
             export_ply=False,
+            dense=False,
+            max_image_size=0,
         )
 
     @patch("src.pipeline.download_video")

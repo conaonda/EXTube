@@ -73,6 +73,8 @@ class JobCreate(BaseModel):
     frame_interval: float = 1.0
     blur_threshold: float = 100.0
     camera_model: str = "SIMPLE_RADIAL"
+    dense: bool = False
+    max_image_size: int = 0
 
 
 class JobResponse(BaseModel):
@@ -141,6 +143,8 @@ def _run_pipeline(job_id: str, params: JobCreate) -> None:
             frames_dir,
             reconstruction_dir,
             camera_model=params.camera_model,
+            dense=params.dense,
+            max_image_size=params.max_image_size,
         )
 
         # PLY 파일 경로 검증
@@ -156,9 +160,17 @@ def _run_pipeline(job_id: str, params: JobCreate) -> None:
             "num_points3d": reconstruction_result.num_points3d,
             "steps_completed": reconstruction_result.steps_completed,
         }
+        if reconstruction_result.num_dense_points is not None:
+            result["num_dense_points"] = reconstruction_result.num_dense_points
         updates: dict[str, Any] = {"status": JobStatus.completed, "result": result}
         if ply_path.exists() and str(ply_resolved).startswith(str(base_resolved)):
             updates["ply_path"] = str(ply_resolved)
+
+        dense_ply_path = reconstruction_dir / "dense_points.ply"
+        if dense_ply_path.exists():
+            dense_resolved = dense_ply_path.resolve()
+            if str(dense_resolved).startswith(str(base_resolved)):
+                updates["dense_ply_path"] = str(dense_resolved)
         _job_store.update(job_id, **updates)
 
     except Exception as e:
