@@ -6,7 +6,7 @@ from unittest.mock import patch
 
 import pytest
 from fastapi.testclient import TestClient
-from src.api.main import JobStatus, _jobs, app
+from src.api.main import JobStatus, _jobs, _jobs_lock, app
 
 client = TestClient(app)
 
@@ -14,9 +14,11 @@ client = TestClient(app)
 @pytest.fixture(autouse=True)
 def _clear_jobs():
     """각 테스트 전후로 작업 저장소를 초기화한다."""
-    _jobs.clear()
+    with _jobs_lock:
+        _jobs.clear()
     yield
-    _jobs.clear()
+    with _jobs_lock:
+        _jobs.clear()
 
 
 class TestCreateJob:
@@ -24,9 +26,7 @@ class TestCreateJob:
 
     def test_invalid_url_returns_400(self):
         """유효하지 않은 URL은 400을 반환한다."""
-        resp = client.post(
-            "/api/jobs", json={"url": "not-a-url"}
-        )
+        resp = client.post("/api/jobs", json={"url": "not-a-url"})
         assert resp.status_code == 400
         assert "유효하지 않은" in resp.json()["detail"]
 
@@ -40,9 +40,7 @@ class TestCreateJob:
         assert resp.status_code == 201
         data = resp.json()
         assert data["status"] == "pending"
-        assert data["url"] == (
-            "https://www.youtube.com/watch?v=dQw4w9WgXcQ"
-        )
+        assert data["url"] == ("https://www.youtube.com/watch?v=dQw4w9WgXcQ")
         assert data["id"] in _jobs
 
     @patch("src.api.main._run_pipeline")
@@ -57,6 +55,28 @@ class TestCreateJob:
             },
         )
         assert resp.status_code == 201
+
+        mock_run.assert_called_once()
+        call_args = mock_run.call_args
+        job_id = call_args[0][0]
+        params = call_args[0][1]
+        assert job_id in _jobs
+        assert params.url == "https://youtu.be/dQw4w9WgXcQ"
+        assert params.max_height == 720
+        assert params.frame_interval == 2.0
+        assert params.blur_threshold == 100.0
+        assert params.camera_model == "SIMPLE_RADIAL"
+
+    def test_xss_url_sanitized(self):
+        """XSS가 포함된 URL은 sanitize된다."""
+        resp = client.post(
+            "/api/jobs",
+            json={"url": "<script>alert('xss')</script>"},
+        )
+        assert resp.status_code == 400
+        detail = resp.json()["detail"]
+        assert "<script>" not in detail
+        assert "'" not in detail
 
 
 class TestGetJob:
@@ -138,8 +158,10 @@ class TestGetJobResult:
         resp = client.get("/api/jobs/done1/result")
         assert resp.status_code == 404
 
-    def test_download_ply(self, tmp_path):
+    @patch("src.api.main.OUTPUT_BASE_DIR")
+    def test_download_ply(self, mock_base_dir, tmp_path):
         """PLY 파일을 다운로드한다."""
+        mock_base_dir.resolve.return_value = tmp_path.resolve()
         ply_file = tmp_path / "points.ply"
         ply_file.write_text("ply content")
 
