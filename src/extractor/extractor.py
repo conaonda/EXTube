@@ -109,9 +109,7 @@ def compute_blur_score(image_path: Path) -> float:
             except (ValueError, IndexError):
                 pass
 
-    raise RuntimeError(
-        f"블러 점수 계산 실패 (laplacian 파싱 불가): {image_path}"
-    )
+    raise RuntimeError(f"블러 점수 계산 실패 (laplacian 파싱 불가): {image_path}")
 
 
 def filter_blurry_frames(
