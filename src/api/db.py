@@ -12,7 +12,14 @@ from typing import Any
 
 _DEFAULT_DB_PATH = Path("data/jobs.db")
 _JOB_TTL_SECONDS = 24 * 60 * 60  # 24시간
-_ALLOWED_UPDATE_FIELDS = {"status", "error", "result", "ply_path"}
+_ALLOWED_UPDATE_FIELDS = {
+    "status",
+    "error",
+    "result",
+    "ply_path",
+    "dense_ply_path",
+    "progress",
+}
 
 
 class JobStore:
@@ -36,9 +43,21 @@ class JobStore:
                 error TEXT,
                 result TEXT,
                 ply_path TEXT,
+                dense_ply_path TEXT,
+                progress TEXT,
                 created_at REAL NOT NULL
             )
         """)
+        self._conn.commit()
+        self._migrate()
+
+    def _migrate(self) -> None:
+        """기존 테이블에 누락된 컬럼을 추가한다."""
+        rows = self._conn.execute("PRAGMA table_info(jobs)").fetchall()
+        columns = {row[1] for row in rows}
+        for col in ("progress", "dense_ply_path"):
+            if col not in columns:
+                self._conn.execute(f"ALTER TABLE jobs ADD COLUMN {col} TEXT")
         self._conn.commit()
 
     def create(self, job_id: str, status: str, url: str) -> dict[str, Any]:
@@ -49,13 +68,16 @@ class JobStore:
             "error": None,
             "result": None,
             "ply_path": None,
+            "dense_ply_path": None,
+            "progress": None,
             "created_at": time.time(),
         }
         sql = (
             "INSERT INTO jobs"
-            " (id, status, url, error, result, ply_path, created_at)"
+            " (id, status, url, error, result,"
+            " ply_path, dense_ply_path, progress, created_at)"
             " VALUES (:id, :status, :url, :error, :result,"
-            " :ply_path, :created_at)"
+            " :ply_path, :dense_ply_path, :progress, :created_at)"
         )
         with self._lock:
             self._conn.execute(sql, job)
@@ -76,6 +98,8 @@ class JobStore:
             raise ValueError(f"Invalid fields: {invalid}")
         if "result" in fields and fields["result"] is not None:
             fields["result"] = json.dumps(fields["result"])
+        if "progress" in fields and fields["progress"] is not None:
+            fields["progress"] = json.dumps(fields["progress"])
         sets = ", ".join(f"{k} = ?" for k in fields)
         vals = list(fields.values()) + [job_id]
         with self._lock:
@@ -107,5 +131,7 @@ class JobStore:
         d = dict(row)
         if isinstance(d.get("result"), str):
             d["result"] = json.loads(d["result"])
+        if isinstance(d.get("progress"), str):
+            d["progress"] = json.loads(d["progress"])
         d.pop("created_at", None)
         return d

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from unittest.mock import patch
 
 import pytest
@@ -186,3 +187,71 @@ class TestGetJobResult:
         resp = client.get("/api/jobs/aabbccddeef4/result")
         assert resp.status_code == 200
         assert resp.content == b"ply content"
+
+
+def _parse_sse_events(response) -> list[dict]:
+    """SSE 응답에서 data 이벤트를 파싱한다."""
+    events = []
+    for line in response.text.strip().split("\n"):
+        line = line.strip()
+        if line.startswith("data: "):
+            events.append(json.loads(line[6:]))
+    return events
+
+
+class TestStreamJob:
+    """GET /api/jobs/{id}/stream 테스트."""
+
+    def test_stream_not_found(self):
+        """존재하지 않는 작업은 404를 반환한다."""
+        resp = client.get("/api/jobs/nonexistent/stream")
+        assert resp.status_code == 404
+
+    def test_stream_completed_job(self):
+        """완료된 작업은 최종 이벤트 1개만 전송한다."""
+        _insert_job(
+            "aabbccddeef5",
+            status=JobStatus.completed,
+            result={"num_points3d": 42},
+        )
+        resp = client.get("/api/jobs/aabbccddeef5/stream")
+        assert resp.status_code == 200
+        events = _parse_sse_events(resp)
+        assert len(events) == 1
+        assert events[0]["status"] == "completed"
+        assert events[0]["result"]["num_points3d"] == 42
+
+    def test_stream_failed_job(self):
+        """실패한 작업은 에러 이벤트를 전송한다."""
+        _insert_job(
+            "aabbccddeef6",
+            status=JobStatus.failed,
+            error="COLMAP 실패",
+        )
+        resp = client.get("/api/jobs/aabbccddeef6/stream")
+        assert resp.status_code == 200
+        events = _parse_sse_events(resp)
+        assert len(events) == 1
+        assert events[0]["status"] == "failed"
+        assert events[0]["error"] == "COLMAP 실패"
+
+    def test_stream_no_duplicate_on_completion(self):
+        """완료 시 progress 이벤트와 completed 이벤트가 중복 전송되지 않는다."""
+        _insert_job("aabbccddeef7", status=JobStatus.completed)
+        _job_store.update(
+            "aabbccddeef7",
+            progress={"stage": "reconstruction", "percent": 100, "message": "완료"},
+        )
+        resp = client.get("/api/jobs/aabbccddeef7/stream")
+        events = _parse_sse_events(resp)
+        # completed 상태이므로 최종 이벤트 1개만
+        assert len(events) == 1
+        assert events[0]["status"] == "completed"
+
+    @patch("src.api.main._SSE_TIMEOUT_SECONDS", 0)
+    def test_stream_timeout(self):
+        """타임아웃 시 연결이 종료된다."""
+        _insert_job("aabbccddeef8", status=JobStatus.processing)
+        resp = client.get("/api/jobs/aabbccddeef8/stream")
+        events = _parse_sse_events(resp)
+        assert any(e.get("status") == "timeout" for e in events)
