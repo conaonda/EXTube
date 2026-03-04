@@ -18,6 +18,7 @@ _ALLOWED_UPDATE_FIELDS = {
     "result",
     "ply_path",
     "dense_ply_path",
+    "gs_splat_path",
     "progress",
 }
 
@@ -44,6 +45,7 @@ class JobStore:
                 result TEXT,
                 ply_path TEXT,
                 dense_ply_path TEXT,
+                gs_splat_path TEXT,
                 progress TEXT,
                 created_at REAL NOT NULL
             )
@@ -55,7 +57,7 @@ class JobStore:
         """기존 테이블에 누락된 컬럼을 추가한다."""
         rows = self._conn.execute("PRAGMA table_info(jobs)").fetchall()
         columns = {row[1] for row in rows}
-        for col in ("progress", "dense_ply_path"):
+        for col in ("progress", "dense_ply_path", "gs_splat_path"):
             if col not in columns:
                 self._conn.execute(f"ALTER TABLE jobs ADD COLUMN {col} TEXT")
         self._conn.commit()
@@ -69,15 +71,16 @@ class JobStore:
             "result": None,
             "ply_path": None,
             "dense_ply_path": None,
+            "gs_splat_path": None,
             "progress": None,
             "created_at": time.time(),
         }
         sql = (
             "INSERT INTO jobs"
             " (id, status, url, error, result,"
-            " ply_path, dense_ply_path, progress, created_at)"
+            " ply_path, dense_ply_path, gs_splat_path, progress, created_at)"
             " VALUES (:id, :status, :url, :error, :result,"
-            " :ply_path, :dense_ply_path, :progress, :created_at)"
+            " :ply_path, :dense_ply_path, :gs_splat_path, :progress, :created_at)"
         )
         with self._lock:
             self._conn.execute(sql, job)
