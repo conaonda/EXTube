@@ -2,9 +2,12 @@
 
 from __future__ import annotations
 
+import asyncio
 import atexit
+import json
 import logging
 import re
+import time
 import uuid
 from collections.abc import AsyncIterator
 from concurrent.futures import ThreadPoolExecutor
@@ -15,7 +18,7 @@ from typing import Any
 
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
@@ -54,6 +57,7 @@ OUTPUT_BASE_DIR = Path("data/jobs")
 STATIC_DIR = Path(__file__).resolve().parent.parent / "viewer" / "dist"
 
 _MAX_WORKERS = 4
+_SSE_TIMEOUT_SECONDS = 30 * 60  # 30분
 
 
 class JobStatus(StrEnum):
@@ -120,14 +124,23 @@ def _run_pipeline(job_id: str, params: JobCreate) -> None:
 
     job_dir = _validate_job_path(job_id)
 
+    def _update_progress(stage: str, percent: int, message: str) -> None:
+        _job_store.update(
+            job_id,
+            progress={"stage": stage, "percent": percent, "message": message},
+        )
+
     try:
         # 1. 다운로드
+        _update_progress("download", 0, "영상 다운로드 시작")
         download_dir = job_dir / "download"
         download_result = download_video(
             params.url, download_dir, max_height=params.max_height
         )
+        _update_progress("download", 100, "영상 다운로드 완료")
 
         # 2. 프레임 추출
+        _update_progress("extraction", 0, "프레임 추출 시작")
         extraction_dir = job_dir / "extraction"
         extraction_result = extract_and_filter(
             download_result.video_path,
@@ -135,8 +148,10 @@ def _run_pipeline(job_id: str, params: JobCreate) -> None:
             interval=params.frame_interval,
             blur_threshold=params.blur_threshold,
         )
+        _update_progress("extraction", 100, "프레임 추출 완료")
 
         # 3. 3D 복원
+        _update_progress("reconstruction", 0, "3D 복원 시작")
         reconstruction_dir = job_dir / "reconstruction"
         frames_dir = extraction_dir / "frames"
         reconstruction_result = reconstruct(
@@ -146,6 +161,8 @@ def _run_pipeline(job_id: str, params: JobCreate) -> None:
             dense=params.dense,
             max_image_size=params.max_image_size,
         )
+
+        _update_progress("reconstruction", 100, "3D 복원 완료")
 
         # PLY 파일 경로 검증
         ply_path = reconstruction_dir / "points.ply"
@@ -213,6 +230,63 @@ def get_job(job_id: str) -> JobResponse:
         url=job["url"],
         error=job.get("error"),
         result=job.get("result"),
+    )
+
+
+@app.get("/api/jobs/{job_id}/stream")
+async def stream_job(job_id: str) -> StreamingResponse:
+    """SSE로 작업 진행률을 실시간 스트리밍한다."""
+    job = _job_store.get(job_id)
+    if job is None:
+        raise HTTPException(status_code=404, detail="작업을 찾을 수 없습니다")
+
+    async def event_generator():
+        last_progress = None
+        start_time = time.monotonic()
+        try:
+            while True:
+                if time.monotonic() - start_time > _SSE_TIMEOUT_SECONDS:
+                    timeout_data = {
+                        "status": "timeout",
+                        "message": "스트리밍 시간 초과",
+                    }
+                    yield f"data: {json.dumps(timeout_data, ensure_ascii=False)}\n\n"
+                    break
+
+                current = _job_store.get(job_id)
+                if current is None:
+                    break
+
+                if current["status"] in (JobStatus.completed, JobStatus.failed):
+                    final_data = {
+                        "status": current["status"],
+                        "progress": current.get("progress"),
+                        "result": current.get("result"),
+                        "error": current.get("error"),
+                    }
+                    yield f"data: {json.dumps(final_data, ensure_ascii=False)}\n\n"
+                    break
+
+                progress = current.get("progress")
+                if progress != last_progress:
+                    last_progress = progress
+                    event_data = {
+                        "status": current["status"],
+                        "progress": progress,
+                    }
+                    yield f"data: {json.dumps(event_data, ensure_ascii=False)}\n\n"
+
+                await asyncio.sleep(1)
+        except asyncio.CancelledError:
+            logger.info("SSE 연결 해제: job %s", job_id)
+
+    return StreamingResponse(
+        event_generator(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "X-Accel-Buffering": "no",
+        },
     )
 
 
