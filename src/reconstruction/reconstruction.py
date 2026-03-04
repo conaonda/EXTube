@@ -21,6 +21,8 @@ class ReconstructionResult:
     num_points3d: int
     camera_model: str = "SIMPLE_RADIAL"
     steps_completed: list[str] = field(default_factory=list)
+    dense_dir: Path | None = None
+    num_dense_points: int | None = None
 
 
 def _run_colmap(
@@ -130,6 +132,94 @@ def export_to_ply(
     )
 
 
+def image_undistorter(
+    image_dir: Path,
+    sparse_model_dir: Path,
+    output_dir: Path,
+    max_image_size: int = 0,
+) -> None:
+    """이미지 왜곡을 보정한다 (dense reconstruction 전처리)."""
+    if not sparse_model_dir.is_dir():
+        raise FileNotFoundError(
+            f"Sparse 모델 디렉토리를 찾을 수 없습니다: {sparse_model_dir}"
+        )
+
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    args = [
+        "--image_path",
+        str(image_dir),
+        "--input_path",
+        str(sparse_model_dir),
+        "--output_path",
+        str(output_dir),
+        "--output_type",
+        "COLMAP",
+    ]
+    if max_image_size > 0:
+        args.extend(["--max_image_size", str(max_image_size)])
+
+    _run_colmap("image_undistorter", args)
+
+
+def patch_match_stereo(
+    workspace_dir: Path,
+    max_image_size: int = 0,
+) -> None:
+    """PatchMatch 스테레오 매칭으로 깊이 맵을 생성한다."""
+    if not workspace_dir.is_dir():
+        raise FileNotFoundError(f"작업 디렉토리를 찾을 수 없습니다: {workspace_dir}")
+
+    args = [
+        "--workspace_path",
+        str(workspace_dir),
+        "--workspace_format",
+        "COLMAP",
+    ]
+    if max_image_size > 0:
+        args.extend(["--PatchMatchStereo.max_image_size", str(max_image_size)])
+
+    _run_colmap("patch_match_stereo", args)
+
+
+def stereo_fusion(
+    workspace_dir: Path,
+    output_path: Path,
+) -> None:
+    """깊이 맵을 융합하여 밀집 포인트 클라우드를 생성한다."""
+    if not workspace_dir.is_dir():
+        raise FileNotFoundError(f"작업 디렉토리를 찾을 수 없습니다: {workspace_dir}")
+
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+
+    _run_colmap(
+        "stereo_fusion",
+        [
+            "--workspace_path",
+            str(workspace_dir),
+            "--workspace_format",
+            "COLMAP",
+            "--output_path",
+            str(output_path),
+        ],
+    )
+
+
+def _count_ply_points(ply_path: Path) -> int:
+    """PLY 파일의 vertex 수를 헤더에서 파싱한다."""
+    try:
+        with open(ply_path, "rb") as f:
+            for raw_line in f:
+                line = raw_line.decode("ascii", errors="ignore").strip()
+                if line.startswith("element vertex"):
+                    return int(line.split()[-1])
+                if line == "end_header":
+                    break
+    except (OSError, ValueError):
+        pass
+    return 0
+
+
 def _parse_reconstruction_stats(
     sparse_dir: Path,
     timeout: int = 60,
@@ -175,6 +265,8 @@ def reconstruct(
     camera_model: str = "SIMPLE_RADIAL",
     export_ply: bool = True,
     timeout: int = 3600,
+    dense: bool = False,
+    max_image_size: int = 0,
 ) -> ReconstructionResult:
     """전체 COLMAP SfM 파이프라인을 실행한다.
 
@@ -184,6 +276,8 @@ def reconstruct(
         camera_model: COLMAP 카메라 모델
         export_ply: PLY 파일 내보내기 여부
         timeout: COLMAP 명령 타임아웃 (초, 기본 3600)
+        dense: Dense reconstruction (MVS) 실행 여부
+        max_image_size: Dense reconstruction 최대 이미지 크기 (0=제한 없음)
 
     Returns:
         ReconstructionResult: 복원 결과
@@ -234,6 +328,31 @@ def reconstruct(
             export_to_ply(Path(model_dir), ply_path)
             steps_completed.append("ply_export")
 
+    # 5-7. Dense reconstruction (MVS)
+    dense_dir = None
+    num_dense_points = None
+    if dense:
+        model_dir = stats.get("model_dir")
+        if model_dir:
+            dense_ws = workspace_dir / "dense"
+            image_undistorter(
+                image_dir,
+                Path(model_dir),
+                dense_ws,
+                max_image_size=max_image_size,
+            )
+            steps_completed.append("image_undistortion")
+
+            patch_match_stereo(dense_ws, max_image_size=max_image_size)
+            steps_completed.append("patch_match_stereo")
+
+            dense_ply_path = workspace_dir / "dense_points.ply"
+            stereo_fusion(dense_ws, dense_ply_path)
+            steps_completed.append("stereo_fusion")
+
+            dense_dir = dense_ws
+            num_dense_points = _count_ply_points(dense_ply_path)
+
     # 메타데이터 저장
     metadata = {
         "image_dir": str(image_dir),
@@ -244,6 +363,8 @@ def reconstruct(
         "camera_model": camera_model,
         "steps_completed": steps_completed,
     }
+    if dense and num_dense_points is not None:
+        metadata["num_dense_points"] = num_dense_points
     metadata_path = workspace_dir / "reconstruction_metadata.json"
     metadata_path.write_text(json.dumps(metadata, indent=2, ensure_ascii=False))
 
@@ -255,4 +376,6 @@ def reconstruct(
         num_points3d=stats["num_points3d"],
         camera_model=camera_model,
         steps_completed=steps_completed,
+        dense_dir=dense_dir,
+        num_dense_points=num_dense_points,
     )
