@@ -1,6 +1,6 @@
 """nerfstudio + gsplat 기반 3D Gaussian Splatting 학습 파이프라인.
 
-COLMAP sparse 복원 결과를 입력받아 splatfacto-w 모델을 학습하고
+COLMAP sparse 복원 결과를 입력받아 splatfacto 모델을 학습하고
 .ply / .splat 형식으로 출력한다.
 """
 
@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import json
 import logging
+import shutil
 import subprocess
 from dataclasses import dataclass
 from pathlib import Path
@@ -16,13 +17,13 @@ logger = logging.getLogger(__name__)
 
 # GPU VRAM별 학습 파라미터 프리셋
 _VRAM_PRESETS: dict[str, dict] = {
-    "low": {  # 6-8 GB
+    "low": {  # ≤8 GB
         "max_num_iterations": 7000,
         "steps_per_eval_image": 500,
         "pipeline.model.num_downscales": 2,
         "pipeline.model.cull_alpha_thresh": 0.005,
     },
-    "medium": {  # 8-16 GB
+    "medium": {  # 9-16 GB
         "max_num_iterations": 15000,
         "steps_per_eval_image": 500,
         "pipeline.model.num_downscales": 1,
@@ -86,7 +87,7 @@ def select_vram_preset(vram_gb: float) -> str:
     """
     if vram_gb <= 0:
         return "medium"
-    if vram_gb < 10:
+    if vram_gb <= 8:
         return "low"
     if vram_gb < 20:
         return "medium"
@@ -156,7 +157,7 @@ def train_gaussian_splatting(
     max_iterations: int | None = None,
     timeout: int = 7200,
 ) -> GaussianSplattingResult:
-    """splatfacto-w 모델을 학습한다.
+    """splatfacto 모델을 학습한다.
 
     Args:
         data_dir: nerfstudio 형식 데이터 디렉토리
@@ -182,7 +183,9 @@ def train_gaussian_splatting(
         logger.info("GPU VRAM: %.1f GB → 프리셋: %s", vram_gb, vram_preset)
 
     preset = _VRAM_PRESETS.get(vram_preset, _VRAM_PRESETS["medium"])
-    iterations = max_iterations or preset["max_num_iterations"]
+    iterations = (
+        max_iterations if max_iterations is not None else preset["max_num_iterations"]
+    )
 
     output_dir.mkdir(parents=True, exist_ok=True)
 
@@ -225,54 +228,6 @@ def train_gaussian_splatting(
         num_iterations=iterations,
         vram_preset=vram_preset,
     )
-
-
-def export_splat(
-    config_path: Path,
-    output_path: Path,
-    output_format: str = "ply",
-) -> Path:
-    """학습된 모델을 .ply 또는 .splat 형식으로 내보낸다.
-
-    Args:
-        config_path: nerfstudio 학습 config.yml 경로
-        output_path: 출력 파일 경로
-        output_format: 출력 형식 ("ply" 또는 "splat")
-
-    Returns:
-        출력 파일 경로
-
-    Raises:
-        FileNotFoundError: config 파일이 없는 경우
-        RuntimeError: 내보내기 실패 시
-    """
-    if not config_path.is_file():
-        raise FileNotFoundError(f"학습 config를 찾을 수 없습니다: {config_path}")
-
-    output_path.parent.mkdir(parents=True, exist_ok=True)
-
-    cmd = [
-        "ns-export",
-        "gaussian-splat",
-        "--load-config",
-        str(config_path),
-        "--output-dir",
-        str(output_path.parent),
-    ]
-
-    result = subprocess.run(
-        cmd,
-        capture_output=True,
-        text=True,
-        check=False,
-        timeout=600,
-    )
-    if result.returncode != 0:
-        raise RuntimeError(
-            f"3DGS 내보내기 실패 (code {result.returncode}): {result.stderr}"
-        )
-
-    return output_path
 
 
 def run_gaussian_splatting(
@@ -322,14 +277,10 @@ def run_gaussian_splatting(
     final_splat = workspace_dir / "gaussian_splat.splat"
 
     if gs_result.ply_path and gs_result.ply_path.exists():
-        import shutil
-
         shutil.copy2(gs_result.ply_path, final_ply)
         gs_result.ply_path = final_ply
 
     if gs_result.splat_path and gs_result.splat_path.exists():
-        import shutil
-
         shutil.copy2(gs_result.splat_path, final_splat)
         gs_result.splat_path = final_splat
 
