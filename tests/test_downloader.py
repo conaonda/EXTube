@@ -34,6 +34,7 @@ class TestValidateYoutubeUrl:
             "https://vimeo.com/123456",
             "https://youtube.com/watch?v=short",
             "https://youtube.com/playlist?list=abc",
+            "https://youtube.com/watch?v=dQw4w9WgXcQ/malicious",
         ],
     )
     def test_invalid_urls(self, url: str):

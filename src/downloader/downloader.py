@@ -11,7 +11,7 @@ import yt_dlp
 YOUTUBE_URL_PATTERN = re.compile(
     r"^(https?://)?(www\.)?"
     r"(youtube\.com/watch\?v=|youtu\.be/|youtube\.com/shorts/)"
-    r"[A-Za-z0-9_-]{11}"
+    r"[A-Za-z0-9_-]{11}$"
 )
 
 

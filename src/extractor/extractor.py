@@ -67,7 +67,7 @@ def extract_frames(
         "error",
     ]
 
-    result = subprocess.run(cmd, capture_output=True, text=True)
+    result = subprocess.run(cmd, capture_output=True, text=True, timeout=600)
     if result.returncode != 0:
         raise RuntimeError(f"ffmpeg 프레임 추출 실패: {result.stderr}")
 
@@ -100,7 +100,7 @@ def compute_blur_score(image_path: Path) -> float:
         "-",
     ]
 
-    result = subprocess.run(cmd, capture_output=True, text=True)
+    result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
     # lavfi.laplacian.variance 값을 파싱
     for line in result.stderr.split("\n"):
         if "lavfi.laplacian" in line and "variance" in line.lower():
@@ -109,16 +109,15 @@ def compute_blur_score(image_path: Path) -> float:
             except (ValueError, IndexError):
                 pass
 
-    # 파싱 실패 시 대안: 이미지 파일 크기 기반 근사
-    # 선명한 이미지일수록 디테일이 많아 파일 크기가 큼
-    file_size = image_path.stat().st_size
-    return float(file_size)
+    raise RuntimeError(
+        f"블러 점수 계산 실패 (laplacian 파싱 불가): {image_path}"
+    )
 
 
 def filter_blurry_frames(
     frame_paths: list[Path],
     blur_threshold: float = 100.0,
-) -> tuple[list[Path], list[Path]]:
+) -> tuple[list[Path], list[Path], dict[str, float]]:
     """블러 감지를 통해 저품질 프레임을 필터링한다.
 
     Args:
@@ -126,19 +125,21 @@ def filter_blurry_frames(
         blur_threshold: 블러 임계값 (이 값 미만이면 블러로 판정)
 
     Returns:
-        (통과 프레임 목록, 필터링된 프레임 목록)
+        (통과 프레임 목록, 필터링된 프레임 목록, 파일명→블러점수 매핑)
     """
     passed = []
     filtered = []
+    scores: dict[str, float] = {}
 
     for path in frame_paths:
         score = compute_blur_score(path)
+        scores[path.name] = score
         if score >= blur_threshold:
             passed.append(path)
         else:
             filtered.append(path)
 
-    return passed, filtered
+    return passed, filtered, scores
 
 
 def extract_and_filter(
@@ -160,28 +161,26 @@ def extract_and_filter(
     """
     frames_dir = output_dir / "frames"
     all_frames = extract_frames(video_path, frames_dir, interval)
-    passed, filtered = filter_blurry_frames(all_frames, blur_threshold)
+    passed, filtered, scores = filter_blurry_frames(all_frames, blur_threshold)
 
     # 필터링된 프레임을 별도 디렉토리로 이동
     filtered_dir = output_dir / "filtered"
     filtered_dir.mkdir(parents=True, exist_ok=True)
+    filtered_names = {f.name for f in filtered}
     for f in filtered:
         dest = filtered_dir / f.name
         f.rename(dest)
 
-    # 메타데이터 생성
+    # 메타데이터 생성 (이미 계산된 점수 재사용)
     metadata_list = []
     for i, frame in enumerate(all_frames):
-        is_filtered = frame in filtered
-        score = compute_blur_score(
-            (filtered_dir / frame.name) if is_filtered else frame
-        )
+        is_filtered = frame.name in filtered_names
         metadata_list.append(
             FrameMetadata(
                 frame_index=i,
                 timestamp=i * interval,
                 file_path=str(frame.name),
-                blur_score=score,
+                blur_score=scores[frame.name],
                 is_filtered=is_filtered,
             )
         )
