@@ -7,7 +7,7 @@ on:
     branches: [main, develop]
 
 jobs:
-  lint-and-test:
+  backend:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -16,18 +16,36 @@ jobs:
         with:
           python-version: "3.11"
 
-      - uses: actions/setup-node@v4
-        with:
-          node-version: "20"
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ffmpeg colmap
 
       - name: Install Python dependencies
         run: pip install -e ".[dev]"
 
-      - name: Install frontend dependencies
-        run: cd src/viewer && npm ci
-
-      - name: Lint
-        run: make lint
+      - name: Lint (Python)
+        run: |
+          ruff check src/ tests/ --exclude src/viewer/
+          ruff format --check src/ tests/ --exclude src/viewer/
 
       - name: Test
         run: make test
+
+  frontend:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Install dependencies
+        run: cd src/viewer && npm ci
+
+      - name: Lint (Frontend)
+        run: cd src/viewer && npx eslint .
+
+      - name: Build
+        run: cd src/viewer && npm run build
