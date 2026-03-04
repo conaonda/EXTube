@@ -23,6 +23,9 @@ class ReconstructionResult:
     steps_completed: list[str] = field(default_factory=list)
     dense_dir: Path | None = None
     num_dense_points: int | None = None
+    gs_ply_path: Path | None = None
+    gs_splat_path: Path | None = None
+    gs_num_iterations: int | None = None
 
 
 def _run_colmap(
@@ -267,6 +270,8 @@ def reconstruct(
     timeout: int = 3600,
     dense: bool = False,
     max_image_size: int = 0,
+    gaussian_splatting: bool = False,
+    gs_max_iterations: int | None = None,
 ) -> ReconstructionResult:
     """전체 COLMAP SfM 파이프라인을 실행한다.
 
@@ -278,6 +283,8 @@ def reconstruct(
         timeout: COLMAP 명령 타임아웃 (초, 기본 3600)
         dense: Dense reconstruction (MVS) 실행 여부
         max_image_size: Dense reconstruction 최대 이미지 크기 (0=제한 없음)
+        gaussian_splatting: 3D Gaussian Splatting 학습 실행 여부
+        gs_max_iterations: 3DGS 최대 학습 반복 횟수 (None=자동)
 
     Returns:
         ReconstructionResult: 복원 결과
@@ -353,6 +360,27 @@ def reconstruct(
             dense_dir = dense_ws
             num_dense_points = _count_ply_points(dense_ply_path)
 
+    # 8. 3D Gaussian Splatting 학습
+    gs_ply_path = None
+    gs_splat_path = None
+    gs_num_iterations = None
+    if gaussian_splatting:
+        model_dir = stats.get("model_dir")
+        if model_dir:
+            from src.reconstruction.gaussian_splatting import run_gaussian_splatting
+
+            gs_workspace = workspace_dir / "gaussian_splatting"
+            gs_result = run_gaussian_splatting(
+                Path(model_dir),
+                image_dir,
+                gs_workspace,
+                max_iterations=gs_max_iterations,
+            )
+            steps_completed.append("gaussian_splatting")
+            gs_ply_path = gs_result.ply_path
+            gs_splat_path = gs_result.splat_path
+            gs_num_iterations = gs_result.num_iterations
+
     # 메타데이터 저장
     metadata = {
         "image_dir": str(image_dir),
@@ -365,6 +393,10 @@ def reconstruct(
     }
     if dense and num_dense_points is not None:
         metadata["num_dense_points"] = num_dense_points
+    if gaussian_splatting and gs_num_iterations is not None:
+        metadata["gs_num_iterations"] = gs_num_iterations
+        metadata["gs_ply_path"] = str(gs_ply_path) if gs_ply_path else None
+        metadata["gs_splat_path"] = str(gs_splat_path) if gs_splat_path else None
     metadata_path = workspace_dir / "reconstruction_metadata.json"
     metadata_path.write_text(json.dumps(metadata, indent=2, ensure_ascii=False))
 
@@ -378,4 +410,7 @@ def reconstruct(
         steps_completed=steps_completed,
         dense_dir=dense_dir,
         num_dense_points=num_dense_points,
+        gs_ply_path=gs_ply_path,
+        gs_splat_path=gs_splat_path,
+        gs_num_iterations=gs_num_iterations,
     )

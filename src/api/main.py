@@ -79,6 +79,8 @@ class JobCreate(BaseModel):
     camera_model: str = "SIMPLE_RADIAL"
     dense: bool = False
     max_image_size: int = 0
+    gaussian_splatting: bool = False
+    gs_max_iterations: int | None = None
 
 
 class JobResponse(BaseModel):
@@ -160,6 +162,8 @@ def _run_pipeline(job_id: str, params: JobCreate) -> None:
             camera_model=params.camera_model,
             dense=params.dense,
             max_image_size=params.max_image_size,
+            gaussian_splatting=params.gaussian_splatting,
+            gs_max_iterations=params.gs_max_iterations,
         )
 
         _update_progress("reconstruction", 100, "3D 복원 완료")
@@ -179,6 +183,8 @@ def _run_pipeline(job_id: str, params: JobCreate) -> None:
         }
         if reconstruction_result.num_dense_points is not None:
             result["num_dense_points"] = reconstruction_result.num_dense_points
+        if reconstruction_result.gs_num_iterations is not None:
+            result["gs_num_iterations"] = reconstruction_result.gs_num_iterations
         updates: dict[str, Any] = {"status": JobStatus.completed, "result": result}
         if ply_path.exists() and str(ply_resolved).startswith(str(base_resolved)):
             updates["ply_path"] = str(ply_resolved)
@@ -188,6 +194,12 @@ def _run_pipeline(job_id: str, params: JobCreate) -> None:
             dense_resolved = dense_ply_path.resolve()
             if str(dense_resolved).startswith(str(base_resolved)):
                 updates["dense_ply_path"] = str(dense_resolved)
+
+        gs_ply = reconstruction_result.gs_ply_path
+        if gs_ply and gs_ply.exists():
+            gs_resolved = gs_ply.resolve()
+            if str(gs_resolved).startswith(str(base_resolved)):
+                updates["gs_splat_path"] = str(gs_resolved)
         _job_store.update(job_id, **updates)
 
     except Exception as e:
