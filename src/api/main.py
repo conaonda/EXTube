@@ -26,6 +26,7 @@ from pydantic import BaseModel
 
 from src.api.config import get_settings
 from src.api.db import JobStore
+from src.api.rate_limit import RateLimitMiddleware, RateLimitRule
 from src.downloader import validate_youtube_url
 from src.extractor import extract_and_filter
 from src.reconstruction import reconstruct
@@ -55,6 +56,15 @@ app.add_middleware(
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
+)
+
+# Rate limiting
+app.add_middleware(
+    RateLimitMiddleware,
+    default_rule=RateLimitRule(max_requests=100, window_seconds=60),
+    path_rules={
+        ("POST", "/api/jobs"): RateLimitRule(max_requests=5, window_seconds=3600),
+    },
 )
 
 OUTPUT_BASE_DIR = _settings.output_base_dir
