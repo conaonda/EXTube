@@ -24,6 +24,8 @@ from prometheus_client import Gauge, generate_latest
 from prometheus_fastapi_instrumentator import Instrumentator
 from pydantic import BaseModel
 from rq import Queue
+from rq.command import send_stop_job_command
+from rq.job import Job as RQJob
 
 from src.api.auth import (
     get_current_user,
@@ -182,6 +184,7 @@ class JobStatus(StrEnum):
     completed = "completed"
     failed = "failed"
     retrying = "retrying"
+    cancelled = "cancelled"
 
 
 class JobCreate(BaseModel):
@@ -467,6 +470,63 @@ def retry_job(
     return _build_response(updated_job)
 
 
+@app.post("/api/jobs/{job_id}/cancel", response_model=JobResponse)
+def cancel_job(
+    job_id: str,
+    current_user: dict = Depends(get_current_user),
+) -> JobResponse:
+    """진행 중인 작업을 취소한다."""
+    job = _get_user_job(job_id, current_user)
+
+    cancellable = (JobStatus.pending, JobStatus.processing, JobStatus.retrying)
+    if job["status"] not in cancellable:
+        raise HTTPException(
+            status_code=409,
+            detail=f"취소할 수 없는 상태입니다 (현재: {job['status']})",
+        )
+
+    conn = _get_redis_connection()
+    try:
+        # RQ 큐에서 대기 중인 Job 취소 시도
+        try:
+            rq_job = RQJob.fetch(job_id, connection=conn)
+            rq_job.cancel()
+        except Exception:
+            pass
+
+        # 실행 중인 worker에 중지 명령 전송
+        if job["status"] == JobStatus.processing:
+            try:
+                send_stop_job_command(conn, job_id)
+            except Exception:
+                pass
+
+        # 상태를 cancelled로 업데이트
+        _job_store.update(job_id, status="cancelled", error="사용자에 의해 취소됨")
+
+        # Redis pub/sub으로 취소 상태 전파
+        conn.publish(
+            f"job:{job_id}:progress",
+            json.dumps(
+                {"status": "cancelled", "message": "사용자에 의해 취소됨"},
+                ensure_ascii=False,
+            ),
+        )
+
+        # 중간 결과물 정리
+        try:
+            job_dir = _validate_job_path(job_id)
+            if job_dir.is_dir():
+                shutil.rmtree(job_dir)
+        except ValueError:
+            pass
+    finally:
+        conn.close()
+
+    updated = _job_store.get(job_id)
+    return _build_response(updated)
+
+
 @app.get("/api/jobs/{job_id}/stream")
 async def stream_job(
     job_id: str,
@@ -492,7 +552,7 @@ async def stream_job(
                 if current is None:
                     break
 
-                if current["status"] in (JobStatus.completed, JobStatus.failed):
+                if current["status"] in (JobStatus.completed, JobStatus.failed, JobStatus.cancelled):
                     final_data = {
                         "status": current["status"],
                         "progress": current.get("progress"),
