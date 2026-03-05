@@ -8,6 +8,7 @@ import json
 import logging
 import re
 import shutil
+import threading
 import time
 import uuid
 from collections.abc import AsyncIterator
@@ -61,6 +62,7 @@ STATIC_DIR = Path(__file__).resolve().parent.parent / "viewer" / "dist"
 
 _MAX_WORKERS = _settings.max_workers
 _SSE_TIMEOUT_SECONDS = _settings.sse_timeout_seconds
+_gpu_semaphore = threading.Semaphore(_settings.gpu_concurrency)
 
 
 class JobStatus(StrEnum):
@@ -156,19 +158,21 @@ def _run_pipeline(job_id: str, params: JobCreate) -> None:
         )
         _update_progress("extraction", 100, "프레임 추출 완료")
 
-        # 3. 3D 복원
-        _update_progress("reconstruction", 0, "3D 복원 시작")
+        # 3. 3D 복원 (GPU semaphore로 동시성 제한)
+        _update_progress("reconstruction", 0, "GPU 대기 중")
         reconstruction_dir = job_dir / "reconstruction"
         frames_dir = extraction_dir / "frames"
-        reconstruction_result = reconstruct(
-            frames_dir,
-            reconstruction_dir,
-            camera_model=params.camera_model,
-            dense=params.dense,
-            max_image_size=params.max_image_size,
-            gaussian_splatting=params.gaussian_splatting,
-            gs_max_iterations=params.gs_max_iterations,
-        )
+        with _gpu_semaphore:
+            _update_progress("reconstruction", 0, "3D 복원 시작")
+            reconstruction_result = reconstruct(
+                frames_dir,
+                reconstruction_dir,
+                camera_model=params.camera_model,
+                dense=params.dense,
+                max_image_size=params.max_image_size,
+                gaussian_splatting=params.gaussian_splatting,
+                gs_max_iterations=params.gs_max_iterations,
+            )
 
         _update_progress("reconstruction", 100, "3D 복원 완료")
 
