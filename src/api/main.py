@@ -117,7 +117,7 @@ def _validate_job_path(job_id: str) -> Path:
         raise ValueError(f"잘못된 job_id 형식: {job_id}")
     job_dir = (OUTPUT_BASE_DIR / job_id).resolve()
     base_resolved = OUTPUT_BASE_DIR.resolve()
-    if not str(job_dir).startswith(str(base_resolved)):
+    if not job_dir.is_relative_to(base_resolved):
         raise ValueError("잘못된 경로")
     return job_dir
 
@@ -190,25 +190,25 @@ def _run_pipeline(job_id: str, params: JobCreate) -> None:
         if reconstruction_result.gs_num_iterations is not None:
             result["gs_num_iterations"] = reconstruction_result.gs_num_iterations
         updates: dict[str, Any] = {"status": JobStatus.completed, "result": result}
-        if ply_path.exists() and str(ply_resolved).startswith(str(base_resolved)):
+        if ply_path.exists() and ply_resolved.is_relative_to(base_resolved):
             updates["ply_path"] = str(ply_resolved)
 
         dense_ply_path = reconstruction_dir / "dense_points.ply"
         if dense_ply_path.exists():
             dense_resolved = dense_ply_path.resolve()
-            if str(dense_resolved).startswith(str(base_resolved)):
+            if dense_resolved.is_relative_to(base_resolved):
                 updates["dense_ply_path"] = str(dense_resolved)
 
         gs_ply = reconstruction_result.gs_ply_path
         if gs_ply and gs_ply.exists():
             gs_resolved = gs_ply.resolve()
-            if str(gs_resolved).startswith(str(base_resolved)):
+            if gs_resolved.is_relative_to(base_resolved):
                 updates["gs_splat_path"] = str(gs_resolved)
 
         potree_meta = reconstruction_result.potree_metadata_path
         if potree_meta and potree_meta.exists():
             potree_dir = potree_meta.parent.resolve()
-            if str(potree_dir).startswith(str(base_resolved)):
+            if potree_dir.is_relative_to(base_resolved):
                 updates["potree_dir"] = str(potree_dir)
                 result["has_potree"] = True
 
@@ -429,7 +429,7 @@ def get_job_result(job_id: str) -> FileResponse:
 
     ply_resolved = Path(ply_path).resolve()
     base_resolved = OUTPUT_BASE_DIR.resolve()
-    if not str(ply_resolved).startswith(str(base_resolved)):
+    if not ply_resolved.is_relative_to(base_resolved):
         raise HTTPException(
             status_code=400,
             detail="잘못된 파일 경로입니다",
@@ -470,7 +470,7 @@ def get_splat_file(job_id: str) -> FileResponse:
 
     splat_resolved = Path(gs_splat_path).resolve()
     base_resolved = OUTPUT_BASE_DIR.resolve()
-    if not str(splat_resolved).startswith(str(base_resolved)):
+    if not splat_resolved.is_relative_to(base_resolved):
         raise HTTPException(status_code=400, detail="잘못된 파일 경로입니다")
 
     if not splat_resolved.exists():
@@ -505,11 +505,11 @@ def get_potree_file(job_id: str, file_path: str) -> FileResponse:
 
     base_resolved = OUTPUT_BASE_DIR.resolve()
     potree_resolved = Path(potree_dir).resolve()
-    if not str(potree_resolved).startswith(str(base_resolved)):
+    if not potree_resolved.is_relative_to(base_resolved):
         raise HTTPException(status_code=400, detail="잘못된 파일 경로입니다")
 
     target = (potree_resolved / file_path).resolve()
-    if not str(target).startswith(str(potree_resolved)):
+    if not target.is_relative_to(potree_resolved):
         raise HTTPException(status_code=400, detail="잘못된 파일 경로입니다")
 
     if not target.exists():
