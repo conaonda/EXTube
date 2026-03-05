@@ -47,7 +47,7 @@ from src.api.ws import (
     stop_redis_subscriber,
     websocket_job_handler,
 )
-from src.downloader import validate_youtube_url
+from src.downloader import fetch_video_metadata, validate_youtube_url
 
 logger = logging.getLogger(__name__)
 
@@ -339,6 +339,40 @@ def create_job(
         raise HTTPException(
             status_code=400,
             detail=f"유효하지 않은 유튜브 URL: {sanitized_url}",
+        )
+
+    # 영상 메타데이터 사전 검증
+    try:
+        meta = fetch_video_metadata(body.url)
+    except RuntimeError as e:
+        raise HTTPException(status_code=503, detail=f"영상 정보를 가져올 수 없습니다: {e}")
+
+    if meta.duration is None:
+        raise HTTPException(
+            status_code=422,
+            detail="영상 길이를 확인할 수 없습니다 (라이브 스트림 등은 지원하지 않습니다)",
+        )
+
+    max_duration = _settings.max_video_duration_seconds
+    if meta.duration > max_duration:
+        minutes = int(meta.duration // 60)
+        seconds = int(meta.duration % 60)
+        limit_min = max_duration // 60
+        raise HTTPException(
+            status_code=422,
+            detail=(
+                f"영상 길이({minutes}분 {seconds}초)가 제한({limit_min}분)을 초과합니다"
+            ),
+        )
+
+    max_filesize_bytes = _settings.max_video_filesize_mb * 1024 * 1024
+    if meta.filesize_approx and meta.filesize_approx > max_filesize_bytes:
+        size_mb = meta.filesize_approx / (1024 * 1024)
+        raise HTTPException(
+            status_code=422,
+            detail=(
+                f"예상 파일 크기({size_mb:.0f}MB)가 제한({_settings.max_video_filesize_mb}MB)을 초과합니다"
+            ),
         )
 
     # 동일 URL 중복 처리 방지

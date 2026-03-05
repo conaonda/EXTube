@@ -5,12 +5,19 @@ from __future__ import annotations
 import json
 from unittest.mock import patch
 
+from src.downloader import VideoMetadata
+
 import pytest
 from fastapi.testclient import TestClient
 from src.api.main import JobStatus, _job_store, app
 from src.api.rate_limit import RateLimitMiddleware
 
 client = TestClient(app)
+
+_MOCK_METADATA = VideoMetadata(
+    duration=120, title="Test Video", video_id="dQw4w9WgXcQ",
+    height=1080, filesize_approx=50 * 1024 * 1024,
+)
 
 _TEST_USER_ID = "test_user_id1"
 _TEST_USERNAME = "apitestuser"
@@ -96,7 +103,8 @@ class TestCreateJob:
         assert "유효하지 않은" in resp.json()["detail"]
 
     @patch("src.api.main._enqueue_job")
-    def test_valid_url_creates_job(self, mock_run):
+    @patch("src.api.main.fetch_video_metadata", return_value=_MOCK_METADATA)
+    def test_valid_url_creates_job(self, mock_meta, mock_run):
         """유효한 URL로 작업을 생성한다."""
         headers = _get_auth_headers()
         resp = client.post(
@@ -111,7 +119,8 @@ class TestCreateJob:
         assert _job_store.get(data["id"]) is not None
 
     @patch("src.api.main._enqueue_job")
-    def test_custom_params(self, mock_run):
+    @patch("src.api.main.fetch_video_metadata", return_value=_MOCK_METADATA)
+    def test_custom_params(self, mock_meta, mock_run):
         """커스텀 파라미터가 전달된다."""
         headers = _get_auth_headers()
         resp = client.post(
@@ -154,7 +163,8 @@ class TestJobConcurrencyLimit:
     """사용자별 동시 실행 제한 테스트."""
 
     @patch("src.api.main._enqueue_job")
-    def test_within_limit_succeeds(self, mock_run):
+    @patch("src.api.main.fetch_video_metadata", return_value=_MOCK_METADATA)
+    def test_within_limit_succeeds(self, mock_meta, mock_run):
         """제한 이내의 Job 생성은 성공한다."""
         headers = _get_auth_headers()
         url = "https://www.youtube.com/watch?v=dQw4w9WgXcQ"
@@ -165,7 +175,8 @@ class TestJobConcurrencyLimit:
         assert resp2.status_code == 201
 
     @patch("src.api.main._enqueue_job")
-    def test_exceeding_limit_returns_429(self, mock_run):
+    @patch("src.api.main.fetch_video_metadata", return_value=_MOCK_METADATA)
+    def test_exceeding_limit_returns_429(self, mock_meta, mock_run):
         """제한 초과 시 429를 반환한다."""
         headers = _get_auth_headers()
         url = "https://www.youtube.com/watch?v=dQw4w9WgXcQ"
@@ -178,7 +189,8 @@ class TestJobConcurrencyLimit:
         assert "동시 실행 제한 초과" in resp.json()["detail"]
 
     @patch("src.api.main._enqueue_job")
-    def test_completed_jobs_not_counted(self, mock_run):
+    @patch("src.api.main.fetch_video_metadata", return_value=_MOCK_METADATA)
+    def test_completed_jobs_not_counted(self, mock_meta, mock_run):
         """완료된 Job은 제한에 포함되지 않는다."""
         headers = _get_auth_headers()
         url = "https://www.youtube.com/watch?v=dQw4w9WgXcQ"
@@ -192,7 +204,8 @@ class TestJobConcurrencyLimit:
         assert resp.status_code == 201
 
     @patch("src.api.main._enqueue_job")
-    def test_failed_jobs_not_counted(self, mock_run):
+    @patch("src.api.main.fetch_video_metadata", return_value=_MOCK_METADATA)
+    def test_failed_jobs_not_counted(self, mock_meta, mock_run):
         """실패한 Job은 제한에 포함되지 않는다."""
         headers = _get_auth_headers()
         url = "https://www.youtube.com/watch?v=dQw4w9WgXcQ"
@@ -206,7 +219,8 @@ class TestJobConcurrencyLimit:
         assert resp.status_code == 201
 
     @patch("src.api.main._enqueue_job")
-    def test_processing_jobs_counted(self, mock_run):
+    @patch("src.api.main.fetch_video_metadata", return_value=_MOCK_METADATA)
+    def test_processing_jobs_counted(self, mock_meta, mock_run):
         """처리 중인 Job도 제한에 포함된다."""
         headers = _get_auth_headers()
         url = "https://www.youtube.com/watch?v=dQw4w9WgXcQ"
@@ -224,7 +238,8 @@ class TestDuplicateUrlPrevention:
     """동일 URL 중복 처리 방지 테스트."""
 
     @patch("src.api.main._enqueue_job")
-    def test_duplicate_url_returns_existing_job(self, mock_enqueue):
+    @patch("src.api.main.fetch_video_metadata", return_value=_MOCK_METADATA)
+    def test_duplicate_url_returns_existing_job(self, mock_meta, mock_enqueue):
         """동일 URL의 완료된 Job이 있으면 기존 결과를 반환한다."""
         headers = _get_auth_headers()
         url = "https://www.youtube.com/watch?v=dQw4w9WgXcQ"
@@ -236,7 +251,8 @@ class TestDuplicateUrlPrevention:
         mock_enqueue.assert_not_called()
 
     @patch("src.api.main._enqueue_job")
-    def test_force_reprocess_creates_new_job(self, mock_enqueue):
+    @patch("src.api.main.fetch_video_metadata", return_value=_MOCK_METADATA)
+    def test_force_reprocess_creates_new_job(self, mock_meta, mock_enqueue):
         """force_reprocess=true이면 기존 결과가 있어도 새 Job을 생성한다."""
         headers = _get_auth_headers()
         url = "https://www.youtube.com/watch?v=dQw4w9WgXcQ"
@@ -252,7 +268,8 @@ class TestDuplicateUrlPrevention:
         mock_enqueue.assert_called_once()
 
     @patch("src.api.main._enqueue_job")
-    def test_no_completed_job_creates_new(self, mock_enqueue):
+    @patch("src.api.main.fetch_video_metadata", return_value=_MOCK_METADATA)
+    def test_no_completed_job_creates_new(self, mock_meta, mock_enqueue):
         """완료된 Job이 없으면 새 Job을 생성한다."""
         headers = _get_auth_headers()
         url = "https://www.youtube.com/watch?v=dQw4w9WgXcQ"
@@ -263,7 +280,8 @@ class TestDuplicateUrlPrevention:
         mock_enqueue.assert_called_once()
 
     @patch("src.api.main._enqueue_job")
-    def test_other_user_completed_job_not_returned(self, mock_enqueue):
+    @patch("src.api.main.fetch_video_metadata", return_value=_MOCK_METADATA)
+    def test_other_user_completed_job_not_returned(self, mock_meta, mock_enqueue):
         """다른 유저의 완료된 Job은 반환하지 않는다."""
         headers = _get_auth_headers()
         url = "https://www.youtube.com/watch?v=dQw4w9WgXcQ"
@@ -285,7 +303,8 @@ class TestGetJob:
         assert resp.status_code == 404
 
     @patch("src.api.main._enqueue_job")
-    def test_get_pending_job(self, mock_run):
+    @patch("src.api.main.fetch_video_metadata", return_value=_MOCK_METADATA)
+    def test_get_pending_job(self, mock_meta, mock_run):
         """생성된 작업의 상태를 조회한다."""
         headers = _get_auth_headers()
         create_resp = client.post(
@@ -522,7 +541,8 @@ class TestCancelJob:
 
     @patch("src.api.main._get_redis_connection")
     @patch("src.api.main._enqueue_job")
-    def test_cancelled_jobs_not_counted_in_limit(self, mock_enqueue, mock_redis):
+    @patch("src.api.main.fetch_video_metadata", return_value=_MOCK_METADATA)
+    def test_cancelled_jobs_not_counted_in_limit(self, mock_meta, mock_enqueue, mock_redis):
         """취소된 Job은 동시 실행 제한에 포함되지 않는다."""
         headers = _get_auth_headers()
         mock_conn = mock_redis.return_value
@@ -1000,3 +1020,107 @@ class TestMetrics:
         body = resp.text
         # extube_active_jobs should be 2.0
         assert "extube_active_jobs 2.0" in body
+
+
+class TestVideoValidation:
+    """영상 길이/크기 제한 테스트."""
+
+    @patch("src.api.main._enqueue_job")
+    @patch("src.api.main.fetch_video_metadata")
+    def test_duration_exceeds_limit(self, mock_meta, mock_enqueue):
+        """영상 길이 초과 시 422를 반환한다."""
+        mock_meta.return_value = VideoMetadata(
+            duration=700, title="Long Video", video_id="abc",
+            height=1080, filesize_approx=100 * 1024 * 1024,
+        )
+        headers = _get_auth_headers()
+        resp = client.post(
+            "/api/jobs",
+            json={"url": "https://www.youtube.com/watch?v=dQw4w9WgXcQ"},
+            headers=headers,
+        )
+        assert resp.status_code == 422
+        assert "영상 길이" in resp.json()["detail"]
+        mock_enqueue.assert_not_called()
+
+    @patch("src.api.main._enqueue_job")
+    @patch("src.api.main.fetch_video_metadata")
+    def test_filesize_exceeds_limit(self, mock_meta, mock_enqueue):
+        """예상 파일 크기 초과 시 422를 반환한다."""
+        mock_meta.return_value = VideoMetadata(
+            duration=60, title="Big Video", video_id="abc",
+            height=1080, filesize_approx=600 * 1024 * 1024,
+        )
+        headers = _get_auth_headers()
+        resp = client.post(
+            "/api/jobs",
+            json={"url": "https://www.youtube.com/watch?v=dQw4w9WgXcQ"},
+            headers=headers,
+        )
+        assert resp.status_code == 422
+        assert "파일 크기" in resp.json()["detail"]
+        mock_enqueue.assert_not_called()
+
+    @patch("src.api.main._enqueue_job")
+    @patch("src.api.main.fetch_video_metadata")
+    def test_metadata_fetch_failure(self, mock_meta, mock_enqueue):
+        """메타데이터 조회 실패 시 422를 반환한다."""
+        mock_meta.side_effect = RuntimeError("네트워크 오류")
+        headers = _get_auth_headers()
+        resp = client.post(
+            "/api/jobs",
+            json={"url": "https://www.youtube.com/watch?v=dQw4w9WgXcQ"},
+            headers=headers,
+        )
+        assert resp.status_code == 503
+        assert "영상 정보를 가져올 수 없습니다" in resp.json()["detail"]
+
+    @patch("src.api.main._enqueue_job")
+    @patch("src.api.main.fetch_video_metadata")
+    def test_duration_none_rejected(self, mock_meta, mock_enqueue):
+        """duration=None(라이브 스트림 등)은 422를 반환한다."""
+        mock_meta.return_value = VideoMetadata(
+            duration=None, title="Live Stream", video_id="abc",
+            height=1080, filesize_approx=None,
+        )
+        headers = _get_auth_headers()
+        resp = client.post(
+            "/api/jobs",
+            json={"url": "https://www.youtube.com/watch?v=dQw4w9WgXcQ"},
+            headers=headers,
+        )
+        assert resp.status_code == 422
+        assert "영상 길이를 확인할 수 없습니다" in resp.json()["detail"]
+        mock_enqueue.assert_not_called()
+
+    @patch("src.api.main._enqueue_job")
+    @patch("src.api.main.fetch_video_metadata")
+    def test_within_limits_succeeds(self, mock_meta, mock_enqueue):
+        """제한 이내 영상은 정상 생성된다."""
+        mock_meta.return_value = VideoMetadata(
+            duration=300, title="OK Video", video_id="abc",
+            height=720, filesize_approx=100 * 1024 * 1024,
+        )
+        headers = _get_auth_headers()
+        resp = client.post(
+            "/api/jobs",
+            json={"url": "https://www.youtube.com/watch?v=dQw4w9WgXcQ"},
+            headers=headers,
+        )
+        assert resp.status_code == 201
+
+    @patch("src.api.main._enqueue_job")
+    @patch("src.api.main.fetch_video_metadata")
+    def test_no_filesize_info_passes(self, mock_meta, mock_enqueue):
+        """파일 크기 정보가 없으면 크기 검증을 건너뛴다."""
+        mock_meta.return_value = VideoMetadata(
+            duration=60, title="No Size", video_id="abc",
+            height=1080, filesize_approx=None,
+        )
+        headers = _get_auth_headers()
+        resp = client.post(
+            "/api/jobs",
+            json={"url": "https://www.youtube.com/watch?v=dQw4w9WgXcQ"},
+            headers=headers,
+        )
+        assert resp.status_code == 201
