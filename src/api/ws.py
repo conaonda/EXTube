@@ -9,7 +9,9 @@ from collections import defaultdict
 from typing import Any
 
 from fastapi import WebSocket, WebSocketDisconnect
+from jose import JWTError, jwt
 
+from src.api.config import get_settings
 from src.api.db import JobStore
 from src.api.logging_config import get_logger
 
@@ -137,13 +139,41 @@ def stop_redis_subscriber() -> None:
     _subscriber_stop.clear()
 
 
+def _authenticate_ws_token(token: str | None) -> dict | None:
+    """WebSocket용 JWT 토큰을 검증하고 사용자 정보를 반환한다. 실패 시 None."""
+    if not token:
+        return None
+    settings = get_settings()
+    try:
+        payload = jwt.decode(
+            token, settings.jwt_secret_key, algorithms=[settings.jwt_algorithm]
+        )
+        user_id = payload.get("sub")
+        if user_id is None or payload.get("type") != "access":
+            return None
+        return {"id": user_id, "username": payload.get("username")}
+    except JWTError:
+        return None
+
+
 async def websocket_job_handler(
-    websocket: WebSocket, job_id: str, job_store: JobStore
+    websocket: WebSocket, job_id: str, job_store: JobStore, token: str | None = None
 ) -> None:
     """WebSocket 엔드포인트 핸들러."""
+    # 인증 검증
+    user = _authenticate_ws_token(token)
+    if user is None:
+        await websocket.close(code=4001, reason="인증이 필요합니다")
+        return
+
     job = job_store.get(job_id)
     if job is None:
         await websocket.close(code=4004, reason="작업을 찾을 수 없습니다")
+        return
+
+    # 소유권 검증
+    if job.get("user_id") and job["user_id"] != user["id"]:
+        await websocket.close(code=4003, reason="접근 권한이 없습니다")
         return
 
     await progress_manager.connect(job_id, websocket)

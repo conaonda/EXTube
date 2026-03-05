@@ -8,6 +8,7 @@ import type { Job } from './api'
 import { useJobWebSocket } from './hooks/useJobWebSocket'
 import type { JobProgress, WsJobMessage } from './hooks/useJobWebSocket'
 import { useToast } from './hooks/useToast'
+import { getAccessToken } from './auth'
 
 export default function App() {
   const { jobId } = useParams<{ jobId?: string }>()
@@ -69,7 +70,7 @@ export default function App() {
     [wsJobId, handleJobCompleted],
   )
 
-  useJobWebSocket({ jobId: wsJobId, onMessage: onWsMessage })
+  useJobWebSocket({ jobId: wsJobId, token: getAccessToken(), onMessage: onWsMessage })
 
   const loadJob = useCallback(
     async (id: string) => {
