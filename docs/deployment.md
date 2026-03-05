@@ -96,13 +96,68 @@ redis:
     --save 300 10
     --appendonly yes
     --appendfsync everysec
-    --bind 127.0.0.1
+    --bind 0.0.0.0
 ```
+
+> **참고:** Docker 네트워크 환경에서는 `--bind 0.0.0.0`을 사용합니다.
+> 컨테이너 간 통신이 Docker 내부 네트워크를 통해 이루어지므로,
+> `127.0.0.1`로 바인딩하면 다른 컨테이너에서 접근할 수 없습니다.
+> 외부 접근은 Docker 네트워크 격리와 `requirepass`로 차단됩니다.
 
 **핵심 보안 항목:**
 - `requirepass`: 비밀번호 인증 필수 (Docker secrets로 관리)
-- `bind 127.0.0.1`: 외부 직접 접근 차단 (컨테이너 네트워크 내부만)
+- `bind 0.0.0.0`: Docker 네트워크 내부 접근 허용 (외부는 포트 미노출로 차단)
 - `maxmemory-policy allkeys-lru`: 메모리 초과 시 LRU 방식으로 만료
+
+### Redis 설정 파일
+
+프로덕션 환경에서는 `docker/redis/redis.conf`를 통해 Redis 설정을 관리한다.
+비밀번호는 보안을 위해 설정 파일이 아닌 `docker-compose.prod.yml`에서 환경변수로 주입한다.
+
+### 백업 및 복구
+
+**자동 백업:**
+- RDB 스냅샷: `save 900 1`, `save 300 10`, `save 60 10000` (redis.conf에서 설정)
+- AOF: 모든 쓰기 연산 기록 (`appendfsync everysec`)
+- 데이터는 `redis_data` Docker 볼륨의 `/data` 디렉토리에 저장
+
+**수동 백업:**
+```bash
+# RDB 스냅샷 강제 생성
+docker compose -f docker-compose.yml -f docker-compose.prod.yml exec redis \
+  redis-cli -a $REDIS_PASSWORD BGSAVE
+
+# 백업 파일 호스트로 복사
+docker compose -f docker-compose.yml -f docker-compose.prod.yml \
+  cp redis:/data/dump.rdb ./backup/dump.rdb
+docker compose -f docker-compose.yml -f docker-compose.prod.yml \
+  cp redis:/data/appendonly.aof ./backup/appendonly.aof
+```
+
+**복구:**
+```bash
+# 1. 서비스 중지
+docker compose -f docker-compose.yml -f docker-compose.prod.yml stop redis
+
+# 2. 백업 파일을 볼륨에 복사
+docker compose -f docker-compose.yml -f docker-compose.prod.yml \
+  cp ./backup/dump.rdb redis:/data/dump.rdb
+docker compose -f docker-compose.yml -f docker-compose.prod.yml \
+  cp ./backup/appendonly.aof redis:/data/appendonly.aof
+
+# 3. 서비스 재시작
+docker compose -f docker-compose.yml -f docker-compose.prod.yml start redis
+```
+
+**정기 백업 (cron 예시):**
+```bash
+# 매일 새벽 3시에 Redis 백업 수행
+0 3 * * * cd /path/to/EXTube/docker && \
+  docker compose -f docker-compose.yml -f docker-compose.prod.yml exec -T redis \
+  redis-cli -a $REDIS_PASSWORD BGSAVE && \
+  docker compose -f docker-compose.yml -f docker-compose.prod.yml \
+  cp redis:/data/dump.rdb /backup/redis/dump-$(date +\%Y\%m\%d).rdb
+```
 
 ---
 
