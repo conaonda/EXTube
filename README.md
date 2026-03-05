@@ -54,6 +54,79 @@ make test       # 테스트
 
 자세한 배포 가이드는 [docs/deployment.md](docs/deployment.md)를 참고하세요.
 
+## 로컬 개발 환경 설정
+
+### 시스템 의존성
+
+| 도구 | 버전 | 용도 |
+|------|------|------|
+| Python | >= 3.11 | 백엔드 |
+| Node.js | >= 20 | 프론트엔드 |
+| ffmpeg | - | 프레임 추출 |
+| COLMAP | - | 3D 복원 (SfM) |
+| Redis | >= 7 | 작업 큐 |
+
+```bash
+# Ubuntu/Debian
+sudo apt-get install -y ffmpeg colmap redis-server
+
+# macOS (Homebrew)
+brew install ffmpeg colmap redis
+```
+
+### 백엔드 설정
+
+```bash
+# 환경변수
+cp .env.example .env
+# .env에서 EXTUBE_JWT_SECRET_KEY를 변경하세요
+
+# Python 의존성 (개발 모드)
+make dev
+
+# Redis 실행
+redis-server &
+
+# API 서버 실행
+uvicorn src.api.main:app --reload --port 8000
+```
+
+### 프론트엔드 설정
+
+```bash
+cd src/viewer
+npm install
+npm run dev      # Vite 개발 서버 (localhost:5173)
+```
+
+### 주요 Make 명령어
+
+| 명령어 | 설명 |
+|--------|------|
+| `make dev` | 개발 의존성 포함 설치 |
+| `make lint` | Python (ruff) + TypeScript (eslint) 린트 |
+| `make format` | 자동 포맷팅 |
+| `make test` | 백엔드 테스트 (pytest) |
+
+프론트엔드 테스트는 별도로 실행합니다:
+```bash
+cd src/viewer && npm test
+```
+
+### Docker 개발 환경
+
+Docker Compose로 Redis와 앱을 한 번에 실행할 수 있습니다:
+
+```bash
+cd docker
+docker compose up --build    # app + redis + rq-worker
+```
+
+GPU 모드가 필요한 경우:
+```bash
+docker compose --profile gpu up --build
+```
+
 ## 업무 스킴
 
 이 프로젝트는 [TeamWork](https://github.com/conaonda/TeamWork) 업무 스킴을 따릅니다.

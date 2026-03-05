@@ -88,5 +88,8 @@ jobs:
       - name: Lint (Frontend)
         run: cd src/viewer && npx eslint .
 
+      - name: Test (Frontend)
+        run: cd src/viewer && npx vitest run
+
       - name: Build
         run: cd src/viewer && npm run build

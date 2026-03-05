@@ -23,7 +23,10 @@ function ToastItemView({ toast, onDismiss }: { toast: ToastItem; onDismiss: () =
   const style = typeStyles[toast.type]
   const timerRef = useRef<ReturnType<typeof setTimeout>>()
   const onDismissRef = useRef(onDismiss)
-  onDismissRef.current = onDismiss
+
+  useEffect(() => {
+    onDismissRef.current = onDismiss
+  }, [onDismiss])
 
   useEffect(() => {
     timerRef.current = setTimeout(() => onDismissRef.current(), TOAST_DURATION)
