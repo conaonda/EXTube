@@ -383,6 +383,105 @@ class TestDeleteJob:
         assert not job_dir.exists()
 
 
+class TestCancelJob:
+    """POST /api/jobs/{id}/cancel 테스트."""
+
+    def test_not_found(self):
+        """존재하지 않는 작업은 404를 반환한다."""
+        headers = _get_auth_headers()
+        resp = client.post("/api/jobs/nonexistent/cancel", headers=headers)
+        assert resp.status_code == 404
+
+    @patch("src.api.main._get_redis_connection")
+    def test_cancel_pending_job(self, mock_redis):
+        """대기 중인 작업을 취소한다."""
+        headers = _get_auth_headers()
+        mock_conn = mock_redis.return_value
+        _insert_job("aabbccddeca1", status=JobStatus.pending)
+        resp = client.post("/api/jobs/aabbccddeca1/cancel", headers=headers)
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["status"] == "cancelled"
+        assert _job_store.get("aabbccddeca1")["status"] == "cancelled"
+
+    @patch("src.api.main._get_redis_connection")
+    def test_cancel_processing_job(self, mock_redis):
+        """처리 중인 작업을 취소한다."""
+        headers = _get_auth_headers()
+        mock_conn = mock_redis.return_value
+        _insert_job("aabbccddeca2", status=JobStatus.processing)
+        resp = client.post("/api/jobs/aabbccddeca2/cancel", headers=headers)
+        assert resp.status_code == 200
+        assert resp.json()["status"] == "cancelled"
+
+    @patch("src.api.main._get_redis_connection")
+    def test_cancel_retrying_job(self, mock_redis):
+        """재시도 중인 작업을 취소한다."""
+        headers = _get_auth_headers()
+        mock_conn = mock_redis.return_value
+        _insert_job("aabbccddeca3", status=JobStatus.retrying)
+        resp = client.post("/api/jobs/aabbccddeca3/cancel", headers=headers)
+        assert resp.status_code == 200
+        assert resp.json()["status"] == "cancelled"
+
+    def test_cancel_completed_returns_409(self):
+        """완료된 작업은 취소할 수 없다."""
+        headers = _get_auth_headers()
+        _insert_job("aabbccddeca4", status=JobStatus.completed)
+        resp = client.post("/api/jobs/aabbccddeca4/cancel", headers=headers)
+        assert resp.status_code == 409
+        assert "취소할 수 없는 상태" in resp.json()["detail"]
+
+    def test_cancel_failed_returns_409(self):
+        """실패한 작업은 취소할 수 없다."""
+        headers = _get_auth_headers()
+        _insert_job("aabbccddeca5", status=JobStatus.failed, error="err")
+        resp = client.post("/api/jobs/aabbccddeca5/cancel", headers=headers)
+        assert resp.status_code == 409
+
+    @patch("src.api.main._get_redis_connection")
+    def test_cancel_already_cancelled_returns_409(self, mock_redis):
+        """이미 취소된 작업은 다시 취소할 수 없다."""
+        headers = _get_auth_headers()
+        _insert_job("aabbccddeca6", status=JobStatus.cancelled)
+        resp = client.post("/api/jobs/aabbccddeca6/cancel", headers=headers)
+        assert resp.status_code == 409
+
+    def test_stream_cancelled_job(self):
+        """취소된 작업은 최종 이벤트를 전송한다."""
+        headers = _get_auth_headers()
+        _insert_job("aabbccddeca7", status=JobStatus.cancelled)
+        resp = client.get("/api/jobs/aabbccddeca7/stream", headers=headers)
+        assert resp.status_code == 200
+        events = _parse_sse_events(resp)
+        assert len(events) == 1
+        assert events[0]["status"] == "cancelled"
+
+    def test_delete_cancelled_job(self):
+        """취소된 작업을 삭제할 수 있다."""
+        headers = _get_auth_headers()
+        _insert_job("aabbccddeca8", status=JobStatus.cancelled)
+        resp = client.delete("/api/jobs/aabbccddeca8", headers=headers)
+        assert resp.status_code == 204
+        assert _job_store.get("aabbccddeca8") is None
+
+    @patch("src.api.main._get_redis_connection")
+    @patch("src.api.main._enqueue_job")
+    def test_cancelled_jobs_not_counted_in_limit(self, mock_enqueue, mock_redis):
+        """취소된 Job은 동시 실행 제한에 포함되지 않는다."""
+        headers = _get_auth_headers()
+        mock_conn = mock_redis.return_value
+        url = "https://www.youtube.com/watch?v=dQw4w9WgXcQ"
+        # 2개 생성
+        resp1 = client.post("/api/jobs", json={"url": url}, headers=headers)
+        resp2 = client.post("/api/jobs", json={"url": url}, headers=headers)
+        # 1개 취소
+        client.post(f"/api/jobs/{resp1.json()['id']}/cancel", headers=headers)
+        # 취소된 건 제외하므로 새 Job 생성 가능
+        resp = client.post("/api/jobs", json={"url": url}, headers=headers)
+        assert resp.status_code == 201
+
+
 class TestGetJobResult:
     """GET /api/jobs/{id}/result 테스트."""
 
