@@ -17,7 +17,7 @@ from enum import StrEnum
 from pathlib import Path
 from typing import Any
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
@@ -272,6 +272,40 @@ def create_job(body: JobCreate) -> JobResponse:
         id=job_id,
         status=JobStatus.pending,
         url=body.url,
+    )
+
+
+class JobListResponse(BaseModel):
+    """Job 목록 응답."""
+
+    items: list[JobResponse]
+    total: int
+
+
+@app.get("/api/jobs", response_model=JobListResponse)
+def list_jobs(
+    status: JobStatus | None = Query(None),
+    limit: int = Query(20, ge=1, le=100),
+    offset: int = Query(0, ge=0),
+) -> JobListResponse:
+    """Job 목록을 조회한다."""
+    result = _job_store.list(
+        status=status.value if status else None,
+        limit=limit,
+        offset=offset,
+    )
+    return JobListResponse(
+        items=[
+            JobResponse(
+                id=j["id"],
+                status=j["status"],
+                url=j["url"],
+                error=j.get("error"),
+                result=j.get("result"),
+            )
+            for j in result["items"]
+        ],
+        total=result["total"],
     )
 
 

@@ -1,0 +1,224 @@
+import { useCallback, useEffect, useState } from 'react'
+import { useNavigate, useSearchParams } from 'react-router-dom'
+import { getJobs } from '../api'
+import type { Job } from '../api'
+
+const STATUS_OPTIONS = [
+  { value: '', label: '전체' },
+  { value: 'completed', label: '완료' },
+  { value: 'processing', label: '처리 중' },
+  { value: 'pending', label: '대기' },
+  { value: 'failed', label: '실패' },
+]
+
+const PAGE_SIZE = 20
+
+const statusColors: Record<string, string> = {
+  completed: '#16a34a',
+  processing: '#2563eb',
+  pending: '#d97706',
+  failed: '#dc2626',
+}
+
+const statusLabels: Record<string, string> = {
+  completed: '완료',
+  processing: '처리 중',
+  pending: '대기',
+  failed: '실패',
+}
+
+export default function JobHistory() {
+  const navigate = useNavigate()
+  const [searchParams, setSearchParams] = useSearchParams()
+
+  const currentStatus = searchParams.get('status') || ''
+  const currentPage = Math.max(0, Number(searchParams.get('page') || '0'))
+
+  const [jobs, setJobs] = useState<Job[]>([])
+  const [total, setTotal] = useState(0)
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
+
+  const fetchJobs = useCallback(async () => {
+    setLoading(true)
+    setError(null)
+    try {
+      const data = await getJobs(
+        currentStatus || undefined,
+        PAGE_SIZE,
+        currentPage * PAGE_SIZE,
+      )
+      setJobs(data.items)
+      setTotal(data.total)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Job 목록 조회 실패')
+    } finally {
+      setLoading(false)
+    }
+  }, [currentStatus, currentPage])
+
+  useEffect(() => {
+    fetchJobs()
+  }, [fetchJobs])
+
+  const totalPages = Math.ceil(total / PAGE_SIZE)
+
+  const setFilter = (status: string) => {
+    const params: Record<string, string> = {}
+    if (status) params.status = status
+    setSearchParams(params)
+  }
+
+  const setPage = (page: number) => {
+    const params: Record<string, string> = {}
+    if (currentStatus) params.status = currentStatus
+    if (page > 0) params.page = String(page)
+    setSearchParams(params)
+  }
+
+  return (
+    <div style={{ padding: '1.5rem', maxWidth: '960px', margin: '0 auto' }}>
+      <h2 style={{ margin: '0 0 1rem', fontSize: '1.25rem' }}>Job 히스토리</h2>
+
+      <div style={{ display: 'flex', gap: '0.5rem', marginBottom: '1rem', flexWrap: 'wrap' }}>
+        {STATUS_OPTIONS.map((opt) => (
+          <button
+            key={opt.value}
+            onClick={() => setFilter(opt.value)}
+            style={{
+              padding: '0.375rem 0.75rem',
+              border: '1px solid #ccc',
+              borderRadius: '4px',
+              background: currentStatus === opt.value ? '#2563eb' : '#fff',
+              color: currentStatus === opt.value ? '#fff' : '#333',
+              cursor: 'pointer',
+              fontSize: '0.875rem',
+            }}
+          >
+            {opt.label}
+          </button>
+        ))}
+      </div>
+
+      {error && (
+        <div
+          style={{
+            padding: '0.75rem',
+            background: '#fef2f2',
+            borderRadius: '4px',
+            color: '#dc2626',
+            marginBottom: '1rem',
+          }}
+        >
+          {error}
+        </div>
+      )}
+
+      {loading ? (
+        <div style={{ color: '#666', padding: '2rem', textAlign: 'center' }}>
+          로딩 중...
+        </div>
+      ) : jobs.length === 0 ? (
+        <div style={{ color: '#666', padding: '2rem', textAlign: 'center' }}>
+          작업이 없습니다.
+        </div>
+      ) : (
+        <>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+            {jobs.map((job) => (
+              <div
+                key={job.id}
+                onClick={() => navigate(`/jobs/${job.id}`)}
+                style={{
+                  padding: '0.75rem 1rem',
+                  border: '1px solid #e0e0e0',
+                  borderRadius: '6px',
+                  cursor: 'pointer',
+                  display: 'flex',
+                  justifyContent: 'space-between',
+                  alignItems: 'center',
+                  gap: '1rem',
+                }}
+                onMouseEnter={(e) => {
+                  e.currentTarget.style.background = '#f9fafb'
+                }}
+                onMouseLeave={(e) => {
+                  e.currentTarget.style.background = ''
+                }}
+              >
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div
+                    style={{
+                      fontWeight: 500,
+                      marginBottom: '0.25rem',
+                      overflow: 'hidden',
+                      textOverflow: 'ellipsis',
+                      whiteSpace: 'nowrap',
+                    }}
+                  >
+                    {job.result?.video_title || job.url}
+                  </div>
+                  <div style={{ fontSize: '0.75rem', color: '#888' }}>{job.id}</div>
+                </div>
+                <span
+                  style={{
+                    padding: '0.25rem 0.5rem',
+                    borderRadius: '4px',
+                    fontSize: '0.75rem',
+                    fontWeight: 600,
+                    color: '#fff',
+                    background: statusColors[job.status] || '#888',
+                    whiteSpace: 'nowrap',
+                  }}
+                >
+                  {statusLabels[job.status] || job.status}
+                </span>
+              </div>
+            ))}
+          </div>
+
+          {totalPages > 1 && (
+            <div
+              style={{
+                display: 'flex',
+                justifyContent: 'center',
+                gap: '0.5rem',
+                marginTop: '1rem',
+              }}
+            >
+              <button
+                disabled={currentPage === 0}
+                onClick={() => setPage(currentPage - 1)}
+                style={{
+                  padding: '0.375rem 0.75rem',
+                  border: '1px solid #ccc',
+                  borderRadius: '4px',
+                  cursor: currentPage === 0 ? 'default' : 'pointer',
+                  opacity: currentPage === 0 ? 0.5 : 1,
+                }}
+              >
+                이전
+              </button>
+              <span style={{ padding: '0.375rem 0.5rem', fontSize: '0.875rem' }}>
+                {currentPage + 1} / {totalPages}
+              </span>
+              <button
+                disabled={currentPage >= totalPages - 1}
+                onClick={() => setPage(currentPage + 1)}
+                style={{
+                  padding: '0.375rem 0.75rem',
+                  border: '1px solid #ccc',
+                  borderRadius: '4px',
+                  cursor: currentPage >= totalPages - 1 ? 'default' : 'pointer',
+                  opacity: currentPage >= totalPages - 1 ? 0.5 : 1,
+                }}
+              >
+                다음
+              </button>
+            </div>
+          )}
+        </>
+      )}
+    </div>
+  )
+}

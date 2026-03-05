@@ -39,6 +39,27 @@ export async function getJob(jobId: string): Promise<Job> {
   return res.json()
 }
 
+export interface JobListResponse {
+  items: Job[]
+  total: number
+}
+
+export async function getJobs(
+  status?: string,
+  limit = 20,
+  offset = 0,
+): Promise<JobListResponse> {
+  const params = new URLSearchParams()
+  if (status) params.set('status', status)
+  params.set('limit', String(limit))
+  params.set('offset', String(offset))
+  const res = await fetch(`${API_BASE}/jobs?${params}`)
+  if (!res.ok) {
+    throw new Error(`Job 목록 조회 실패: ${res.status}`)
+  }
+  return res.json()
+}
+
 export function getResultUrl(jobId: string): string {
   return `${API_BASE}/jobs/${jobId}/result`
 }
