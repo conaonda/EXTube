@@ -29,8 +29,25 @@ jobs:
           ruff check src/ tests/ --exclude src/viewer/
           ruff format --check src/ tests/ --exclude src/viewer/
 
-      - name: Test
-        run: make test
+      - name: Test with coverage
+        run: make coverage
+
+      - name: Upload coverage report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-report
+          path: |
+            htmlcov/
+            coverage.xml
+
+      - name: Coverage summary on PR
+        if: github.event_name == 'pull_request'
+        uses: orgoro/coverage@v3.2
+        with:
+          coverageFile: coverage.xml
+          token: ${{ secrets.GITHUB_TOKEN }}
+          thresholdAll: 0.70
 
   docker-integration:
     runs-on: ubuntu-latest
