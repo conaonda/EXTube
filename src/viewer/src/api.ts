@@ -8,6 +8,8 @@ export interface JobResult {
   num_points3d: number
   steps_completed: string[]
   has_potree?: boolean
+  has_gaussian_splatting?: boolean
+  gaussian_splatting_format?: string
 }
 
 export interface Job {
@@ -66,4 +68,12 @@ export function getResultUrl(jobId: string): string {
 
 export function getPotreeUrl(jobId: string): string {
   return `${API_BASE}/jobs/${jobId}/potree/metadata.json`
+}
+
+export function getSplatUrl(jobId: string, format = 'splat'): string {
+  return `${API_BASE}/jobs/${jobId}/result?format=${format}`
+}
+
+export function isSplatFormat(url: string): boolean {
+  return /\.(splat|spz|ksplat)$/i.test(url)
 }

@@ -12,6 +12,7 @@
   "dependencies": {
     "@react-three/drei": "^10.7.7",
     "@react-three/fiber": "^9.5.0",
+    "@sparkjsdev/spark": "^0.1.10",
     "potree-core": "^2.0.12",
     "react": "^19.2.0",
     "react-dom": "^19.2.0",

@@ -3,7 +3,7 @@ import { useParams } from 'react-router-dom'
 import ViewerCanvas from './components/ViewerCanvas'
 import JobForm from './components/JobForm'
 import JobStatusBar from './components/JobStatus'
-import { createJob, getJob, getPotreeUrl, getResultUrl } from './api'
+import { createJob, getJob, getPotreeUrl, getResultUrl, getSplatUrl } from './api'
 import type { Job } from './api'
 
 export default function App() {
@@ -12,6 +12,7 @@ export default function App() {
   const [error, setError] = useState<string | null>(null)
   const [plyUrl, setPlyUrl] = useState<string | null>(null)
   const [potreeUrl, setPotreeUrl] = useState<string | null>(null)
+  const [splatUrl, setSplatUrl] = useState<string | null>(null)
   const pollingRef = useRef<ReturnType<typeof setInterval> | null>(null)
 
   const stopPolling = useCallback(() => {
@@ -29,7 +30,9 @@ export default function App() {
           setJob(updated)
           if (updated.status === 'completed') {
             stopPolling()
-            if (updated.result?.has_potree) {
+            if (updated.result?.has_gaussian_splatting) {
+              setSplatUrl(getSplatUrl(updated.id, updated.result.gaussian_splatting_format ?? 'splat'))
+            } else if (updated.result?.has_potree) {
               setPotreeUrl(getPotreeUrl(updated.id))
             } else {
               setPlyUrl(getResultUrl(updated.id))
@@ -51,13 +54,16 @@ export default function App() {
       setError(null)
       setPlyUrl(null)
       setPotreeUrl(null)
+      setSplatUrl(null)
       stopPolling()
 
       try {
         const loaded = await getJob(id)
         setJob(loaded)
         if (loaded.status === 'completed') {
-          if (loaded.result?.has_potree) {
+          if (loaded.result?.has_gaussian_splatting) {
+            setSplatUrl(getSplatUrl(loaded.id, loaded.result.gaussian_splatting_format ?? 'splat'))
+          } else if (loaded.result?.has_potree) {
             setPotreeUrl(getPotreeUrl(loaded.id))
           } else {
             setPlyUrl(getResultUrl(loaded.id))
@@ -83,6 +89,7 @@ export default function App() {
       setError(null)
       setPlyUrl(null)
       setPotreeUrl(null)
+      setSplatUrl(null)
       stopPolling()
 
       try {
@@ -133,7 +140,7 @@ export default function App() {
         )}
         {job && <JobStatusBar job={job} />}
       </div>
-      <ViewerCanvas plyUrl={plyUrl} potreeUrl={potreeUrl} />
+      <ViewerCanvas plyUrl={plyUrl} potreeUrl={potreeUrl} splatUrl={splatUrl} />
     </>
   )
 }
