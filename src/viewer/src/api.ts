@@ -1,4 +1,4 @@
-import { authFetch } from './auth'
+import { authFetch, getAccessToken } from './auth'
 
 const API_BASE = '/api'
 
@@ -64,16 +64,23 @@ export async function getJobs(
   return res.json()
 }
 
+function appendToken(url: string): string {
+  const token = getAccessToken()
+  if (!token) return url
+  const sep = url.includes('?') ? '&' : '?'
+  return `${url}${sep}token=${encodeURIComponent(token)}`
+}
+
 export function getResultUrl(jobId: string): string {
-  return `${API_BASE}/jobs/${jobId}/result`
+  return appendToken(`${API_BASE}/jobs/${jobId}/result`)
 }
 
 export function getPotreeUrl(jobId: string): string {
-  return `${API_BASE}/jobs/${jobId}/potree/metadata.json`
+  return appendToken(`${API_BASE}/jobs/${jobId}/potree/metadata.json`)
 }
 
-export function getSplatUrl(jobId: string, format = 'splat'): string {
-  return `${API_BASE}/jobs/${jobId}/result?format=${format}`
+export function getSplatUrl(jobId: string): string {
+  return appendToken(`${API_BASE}/jobs/${jobId}/splat`)
 }
 
 export function isSplatFormat(url: string): boolean {
