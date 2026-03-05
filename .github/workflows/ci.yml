@@ -32,22 +32,13 @@ jobs:
       - name: Test
         run: make test
 
-  docker-build:
+  docker-integration:
     runs-on: ubuntu-latest
-    strategy:
-      matrix:
-        dockerfile: [docker/Dockerfile]
     steps:
       - uses: actions/checkout@v4
 
       - name: Build Docker image
-        run: docker build -f ${{ matrix.dockerfile }} -t extube-ci:${{ github.sha }} .
-
-  integration-test:
-    runs-on: ubuntu-latest
-    needs: [docker-build]
-    steps:
-      - uses: actions/checkout@v4
+        run: docker build -f docker/Dockerfile -t extube-ci:${{ github.sha }} .
 
       - name: Start services
         run: docker compose -f docker/docker-compose.yml up -d redis app
@@ -57,7 +48,8 @@ jobs:
       - name: Wait for app health check
         run: |
           for i in $(seq 1 30); do
-            if docker compose -f docker/docker-compose.yml ps app --format json | grep -q '"healthy"'; then
+            if docker inspect --format='{{.State.Health.Status}}' \
+              $(docker compose -f docker/docker-compose.yml ps -q app) | grep -q "healthy"; then
               echo "App is healthy"
               exit 0
             fi
