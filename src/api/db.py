@@ -107,7 +107,8 @@ class JobStore:
 
         with self._lock:
             count_row = self._conn.execute(
-                f"SELECT COUNT(*) FROM jobs{where}", params  # noqa: S608
+                f"SELECT COUNT(*) FROM jobs{where}",
+                params,  # noqa: S608
             ).fetchone()
             total = count_row[0]
 
