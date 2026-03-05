@@ -8,6 +8,12 @@ import pytest
 from fastapi.testclient import TestClient
 from src.api.main import JobStatus, _job_store, app
 from src.api.rate_limit import RateLimitMiddleware
+from src.downloader import VideoMetadata
+
+_MOCK_METADATA = VideoMetadata(
+    duration=120, title="Test Video", video_id="dQw4w9WgXcQ",
+    height=1080, filesize_approx=50 * 1024 * 1024,
+)
 
 client = TestClient(app)
 
@@ -76,6 +82,7 @@ class TestRateLimitMiddleware:
         _reset_rate_limiter()
         with (
             patch("src.api.main.validate_youtube_url", return_value=True),
+            patch("src.api.main.fetch_video_metadata", return_value=_MOCK_METADATA),
             patch("src.api.main._enqueue_job"),
         ):
             for _ in range(5):
