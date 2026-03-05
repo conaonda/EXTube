@@ -32,5 +32,10 @@ htmlcov/
 coverage.xml
 .coverage
 
+# Playwright
+playwright-report/
+test-results/
+blob-report/
+
 # Data
 data/
