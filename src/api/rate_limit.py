@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-import time
 import threading
+import time
 from collections import defaultdict
 from dataclasses import dataclass, field
 
@@ -43,7 +43,9 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
         self,
         app,
         *,
-        default_rule: RateLimitRule = RateLimitRule(max_requests=100, window_seconds=60),
+        default_rule: RateLimitRule = RateLimitRule(
+            max_requests=100, window_seconds=60
+        ),
         path_rules: dict[tuple[str, str], RateLimitRule] | None = None,
     ):
         super().__init__(app)
@@ -75,14 +77,18 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
         rule = self._get_rule(method, path)
         client_ip = self._get_client_ip(request)
 
-        key = f"{client_ip}:{method}:{path}" if rule is not self.default_rule else f"{client_ip}:default"
+        if rule is not self.default_rule:
+            key = f"{client_ip}:{method}:{path}"
+        else:
+            key = f"{client_ip}:default"
 
         now = time.monotonic()
         with self._lock:
             window = self._windows[key]
             count = window.count_and_clean(now, rule.window_seconds)
             if count >= rule.max_requests:
-                retry_after = int(rule.window_seconds - (now - window.timestamps[0])) + 1
+                elapsed = now - window.timestamps[0]
+                retry_after = int(rule.window_seconds - elapsed) + 1
                 return JSONResponse(
                     status_code=429,
                     content={"detail": "Too Many Requests"},

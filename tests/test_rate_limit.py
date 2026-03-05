@@ -6,10 +6,8 @@ from unittest.mock import patch
 
 import pytest
 from fastapi.testclient import TestClient
-
 from src.api.main import app
 from src.api.rate_limit import RateLimitMiddleware
-
 
 client = TestClient(app)
 
@@ -57,8 +55,10 @@ class TestRateLimitMiddleware:
 
     def test_post_jobs_strict_limit(self):
         """POST /api/jobs는 5 req/hour로 제한된다."""
-        with patch("src.api.main.validate_youtube_url", return_value=True), \
-             patch("src.api.main._executor") as mock_executor:
+        with (
+            patch("src.api.main.validate_youtube_url", return_value=True),
+            patch("src.api.main._executor") as mock_executor,
+        ):
             mock_executor.submit.return_value = None
 
             for _ in range(5):
