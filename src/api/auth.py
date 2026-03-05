@@ -6,7 +6,7 @@ import time
 import uuid
 from datetime import UTC, datetime, timedelta
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
 from jose import JWTError, jwt
 from passlib.context import CryptContext
@@ -17,6 +17,7 @@ from src.api.db import JobStore
 
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/auth/login")
+oauth2_scheme_optional = OAuth2PasswordBearer(tokenUrl="/auth/login", auto_error=False)
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
@@ -96,8 +97,8 @@ def _create_refresh_token(user_id: str) -> tuple[str, str]:
 # --- 인증 의존성 ---
 
 
-def get_current_user(token: str = Depends(oauth2_scheme)) -> dict:
-    """access token에서 현재 사용자를 추출한다."""
+def _validate_access_token(token: str) -> dict:
+    """access token을 검증하고 사용자 정보를 반환한다."""
     settings = get_settings()
     credentials_exception = HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,
@@ -120,6 +121,30 @@ def get_current_user(token: str = Depends(oauth2_scheme)) -> dict:
     if user is None:
         raise credentials_exception
     return {"id": user["id"], "username": user["username"]}
+
+
+def get_current_user(token: str = Depends(oauth2_scheme)) -> dict:
+    """access token에서 현재 사용자를 추출한다."""
+    return _validate_access_token(token)
+
+
+def get_current_user_or_query_token(
+    token: str | None = Depends(oauth2_scheme_optional),
+    query_token: str | None = Query(None, alias="token"),
+) -> dict:
+    """Authorization 헤더 또는 query parameter의 토큰으로 사용자를 인증한다.
+
+    서드파티 3D 뷰어 라이브러리(PLYLoader, SparkJS 등)는
+    Authorization 헤더를 설정할 수 없으므로 query parameter를 지원한다.
+    """
+    effective_token = token or query_token
+    if not effective_token:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="인증 토큰이 필요합니다",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+    return _validate_access_token(effective_token)
 
 
 # --- 엔드포인트 ---

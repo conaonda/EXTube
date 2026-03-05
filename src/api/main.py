@@ -25,7 +25,7 @@ from prometheus_fastapi_instrumentator import Instrumentator
 from pydantic import BaseModel
 from rq import Queue
 
-from src.api.auth import get_current_user, set_job_store
+from src.api.auth import get_current_user, get_current_user_or_query_token, set_job_store
 from src.api.auth import router as auth_router
 from src.api.config import get_settings
 from src.api.db import JobStore
@@ -501,7 +501,7 @@ async def stream_job(
 @app.get("/api/jobs/{job_id}/result")
 def get_job_result(
     job_id: str,
-    current_user: dict = Depends(get_current_user),
+    current_user: dict = Depends(get_current_user_or_query_token),
 ) -> FileResponse:
     """복원 결과물(PLY)을 다운로드한다."""
     job = _get_user_job(job_id, current_user)
@@ -543,7 +543,7 @@ def get_job_result(
 @app.get("/api/jobs/{job_id}/splat")
 def get_splat_file(
     job_id: str,
-    current_user: dict = Depends(get_current_user),
+    current_user: dict = Depends(get_current_user_or_query_token),
 ) -> FileResponse:
     """Gaussian Splatting .ply/.splat 파일을 서빙한다."""
     job = _get_user_job(job_id, current_user)
@@ -583,7 +583,7 @@ def get_splat_file(
 def get_potree_file(
     job_id: str,
     file_path: str,
-    current_user: dict = Depends(get_current_user),
+    current_user: dict = Depends(get_current_user_or_query_token),
 ) -> FileResponse:
     """Potree octree 파일을 서빙한다."""
     job = _get_user_job(job_id, current_user)
@@ -662,7 +662,7 @@ def list_job_files(
 def download_job_file(
     job_id: str,
     file_path: str,
-    current_user: dict = Depends(get_current_user),
+    current_user: dict = Depends(get_current_user_or_query_token),
 ) -> FileResponse:
     """완료된 Job의 결과 파일을 다운로드한다."""
     job = _get_user_job(job_id, current_user)

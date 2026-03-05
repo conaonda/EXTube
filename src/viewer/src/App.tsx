@@ -32,7 +32,7 @@ export default function App() {
       setProgress(null)
       setWsJobId(null)
       if (updated.result?.has_gaussian_splatting) {
-        setSplatUrl(getSplatUrl(updated.id, updated.result.gaussian_splatting_format ?? 'splat'))
+        setSplatUrl(getSplatUrl(updated.id))
       } else if (updated.result?.has_potree) {
         setPotreeUrl(getPotreeUrl(updated.id))
       } else {
