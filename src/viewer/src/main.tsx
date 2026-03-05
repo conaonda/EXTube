@@ -14,16 +14,16 @@ createRoot(document.getElementById('root')!).render(
     <BrowserRouter>
       <AuthProvider>
         <ToastProvider>
-        <Routes>
-          <Route element={<Layout />}>
-            <Route path="/login" element={<LoginPage />} />
-            <Route element={<ProtectedRoute />}>
-              <Route path="/" element={<App />} />
-              <Route path="/jobs" element={<JobHistory />} />
-              <Route path="/jobs/:jobId" element={<App />} />
+          <Routes>
+            <Route element={<Layout />}>
+              <Route path="/login" element={<LoginPage />} />
+              <Route element={<ProtectedRoute />}>
+                <Route path="/" element={<App />} />
+                <Route path="/jobs" element={<JobHistory />} />
+                <Route path="/jobs/:jobId" element={<App />} />
+              </Route>
             </Route>
-          </Route>
-        </Routes>
+          </Routes>
         </ToastProvider>
       </AuthProvider>
     </BrowserRouter>

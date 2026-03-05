@@ -22,11 +22,13 @@ const typeStyles: Record<ToastType, { bg: string; border: string; color: string 
 function ToastItemView({ toast, onDismiss }: { toast: ToastItem; onDismiss: () => void }) {
   const style = typeStyles[toast.type]
   const timerRef = useRef<ReturnType<typeof setTimeout>>()
+  const onDismissRef = useRef(onDismiss)
+  onDismissRef.current = onDismiss
 
   useEffect(() => {
-    timerRef.current = setTimeout(onDismiss, TOAST_DURATION)
+    timerRef.current = setTimeout(() => onDismissRef.current(), TOAST_DURATION)
     return () => clearTimeout(timerRef.current)
-  }, [onDismiss])
+  }, [])
 
   return (
     <div

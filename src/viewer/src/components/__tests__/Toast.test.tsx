@@ -57,9 +57,7 @@ describe('ToastProvider', () => {
     expect(screen.queryByText('사라지는 메시지')).not.toBeInTheDocument()
   })
 
-  // BUG(#144): onDismiss가 toasts 배열 변경 시마다 새 함수로 생성되어 기존 toast 타이머가 리셋됨
-  // 수정 방법: onDismissRef를 사용해 useEffect의 dependency를 빈 배열([])로 만들어야 함
-  it.fails('first toast timer is NOT reset when second toast is added', () => {
+  it('first toast timer is NOT reset when second toast is added', () => {
     renderWithToast()
     addToast('첫 번째 toast', 'error')
     expect(screen.getByText('첫 번째 toast')).toBeInTheDocument()
