@@ -44,7 +44,7 @@ def setup_logging(*, json_format: bool = True, log_level: str = "INFO") -> None:
         ],
         logger_factory=structlog.stdlib.LoggerFactory(),
         wrapper_class=structlog.stdlib.BoundLogger,
-        cache_logger_on_first_use=True,
+        cache_logger_on_first_use=False,
     )
 
     formatter = structlog.stdlib.ProcessorFormatter(
@@ -58,7 +58,12 @@ def setup_logging(*, json_format: bool = True, log_level: str = "INFO") -> None:
     handler.setFormatter(formatter)
 
     root = logging.getLogger()
-    root.handlers.clear()
+    # 기존 structlog 핸들러만 교체 (서드파티 핸들러 보존)
+    root.handlers = [
+        h
+        for h in root.handlers
+        if not isinstance(h.formatter, structlog.stdlib.ProcessorFormatter)
+    ]
     root.addHandler(handler)
     root.setLevel(getattr(logging, log_level.upper(), logging.INFO))
 

@@ -7,52 +7,70 @@ import time
 import structlog
 from fastapi import FastAPI, Request, status
 from fastapi.responses import JSONResponse
-from starlette.middleware.base import BaseHTTPMiddleware, RequestResponseEndpoint
-from starlette.responses import Response
+from starlette.types import ASGIApp, Receive, Scope, Send
 
 from src.api.logging_config import generate_request_id
 
 logger = structlog.get_logger("api.middleware")
 
 
-class RequestLoggingMiddleware(BaseHTTPMiddleware):
-    """요청/응답을 구조화된 로그로 기록하는 미들웨어.
+class RequestLoggingMiddleware:
+    """요청/응답을 구조화된 로그로 기록하는 순수 ASGI 미들웨어.
 
-    각 요청에 고유한 request_id를 부여하고, 응답 헤더에도 포함한다.
+    BaseHTTPMiddleware 대신 ASGI 프로토콜을 직접 구현하여
+    SSE 스트리밍 응답과의 호환성을 보장한다.
     """
 
-    async def dispatch(
-        self, request: Request, call_next: RequestResponseEndpoint
-    ) -> Response:
+    def __init__(self, app: ASGIApp) -> None:
+        self.app = app
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        if scope["type"] != "http":
+            await self.app(scope, receive, send)
+            return
+
         request_id = generate_request_id()
         structlog.contextvars.clear_contextvars()
         structlog.contextvars.bind_contextvars(request_id=request_id)
 
-        request.state.request_id = request_id
+        scope["state"] = {**scope.get("state", {}), "request_id": request_id}
+
+        method = scope.get("method", "")
+        path = scope.get("path", "")
+        client = scope.get("client")
+        client_host = client[0] if client else None
 
         start = time.monotonic()
 
         logger.info(
             "request_started",
-            method=request.method,
-            path=request.url.path,
-            client=request.client.host if request.client else None,
+            method=method,
+            path=path,
+            client=client_host,
         )
 
-        response = await call_next(request)
+        status_code: int | None = None
+
+        async def send_wrapper(message: dict) -> None:
+            nonlocal status_code
+            if message["type"] == "http.response.start":
+                status_code = message.get("status")
+                headers = list(message.get("headers", []))
+                headers.append((b"x-request-id", request_id.encode()))
+                message = {**message, "headers": headers}
+            await send(message)
+
+        await self.app(scope, receive, send_wrapper)
 
         duration_ms = round((time.monotonic() - start) * 1000, 2)
 
         logger.info(
             "request_completed",
-            method=request.method,
-            path=request.url.path,
-            status_code=response.status_code,
+            method=method,
+            path=path,
+            status_code=status_code,
             duration_ms=duration_ms,
         )
-
-        response.headers["X-Request-ID"] = request_id
-        return response
 
 
 def register_exception_handlers(app: FastAPI) -> None:

@@ -37,9 +37,12 @@ from src.api.ws import (
 )
 from src.downloader import validate_youtube_url
 
-logger = get_logger(__name__)
-
 _settings = get_settings()
+
+# 모듈 임포트 시점에 로깅 초기화 (cache_logger_on_first_use=False와 함께 사용)
+setup_logging(json_format=_settings.log_json, log_level=_settings.log_level)
+
+logger = get_logger(__name__)
 
 
 def _get_redis_connection() -> redis.Redis:
@@ -57,7 +60,6 @@ def _get_queue() -> Queue:
 @asynccontextmanager
 async def _lifespan(application: FastAPI) -> AsyncIterator[None]:
     """서버 시작 시 만료된 Job 정리 및 stale Job 복구."""
-    setup_logging(json_format=_settings.log_json, log_level=_settings.log_level)
     deleted = _job_store.cleanup_expired(
         _settings.output_base_dir, ttl=_settings.job_ttl_seconds
     )
