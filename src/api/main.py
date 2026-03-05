@@ -413,6 +413,9 @@ class JobListResponse(BaseModel):
 
     items: list[JobResponse]
     total: int
+    page: int
+    per_page: int
+    total_pages: int
 
 
 class StorageUsageResponse(BaseModel):
@@ -438,23 +441,43 @@ class JobFilesResponse(BaseModel):
     files: list[FileInfo]
 
 
+_ALLOWED_SORT_FIELDS = {"created_at", "status", "url"}
+
+
 @app.get("/api/jobs", response_model=JobListResponse, tags=["jobs"], summary="작업 목록 조회")
 def list_jobs(
     status: JobStatus | None = Query(None),
-    limit: int = Query(20, ge=1, le=100),
-    offset: int = Query(0, ge=0),
+    page: int = Query(1, ge=1, description="페이지 번호 (1부터 시작)"),
+    per_page: int = Query(20, ge=1, le=100, description="페이지당 항목 수"),
+    sort_by: str = Query("created_at", description="정렬 기준 컬럼"),
+    order: str = Query("desc", description="정렬 방향 (asc/desc)"),
     current_user: dict = Depends(get_current_user),
 ) -> JobListResponse:
     """Job 목록을 조회한다. 본인의 Job만 반환한다."""
+    if sort_by not in _ALLOWED_SORT_FIELDS:
+        raise HTTPException(
+            status_code=422,
+            detail=f"정렬 기준은 {', '.join(sorted(_ALLOWED_SORT_FIELDS))} 중 하나여야 합니다",
+        )
+    if order not in ("asc", "desc"):
+        raise HTTPException(status_code=422, detail="정렬 방향은 asc 또는 desc여야 합니다")
+    offset = (page - 1) * per_page
     result = _job_store.list(
         status=status.value if status else None,
-        limit=limit,
+        limit=per_page,
         offset=offset,
         user_id=current_user["id"],
+        sort_by=sort_by,
+        order=order,
     )
+    total = result["total"]
+    total_pages = max(1, -(-total // per_page))
     return JobListResponse(
         items=[_build_response(j) for j in result["items"]],
-        total=result["total"],
+        total=total,
+        page=page,
+        per_page=per_page,
+        total_pages=total_pages,
     )
 
 
