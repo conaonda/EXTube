@@ -82,7 +82,3 @@ export function getPotreeUrl(jobId: string): string {
 export function getSplatUrl(jobId: string): string {
   return appendToken(`${API_BASE}/jobs/${jobId}/splat`)
 }
-
-export function isSplatFormat(url: string): boolean {
-  return /\.(splat|spz|ksplat)$/i.test(url)
-}

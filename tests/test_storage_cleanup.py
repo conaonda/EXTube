@@ -4,13 +4,10 @@ from __future__ import annotations
 
 import time
 from pathlib import Path
-from unittest.mock import patch
 
 import pytest
 from fastapi.testclient import TestClient
-
 from src.api.cleanup import (
-    INTERMEDIATE_DIRS,
     cleanup_expired_results,
     cleanup_intermediate_files,
 )
@@ -77,7 +74,9 @@ def _create_old_completed_job(
 
     job_dir = OUTPUT_BASE / job_id
     # 중간 파일들
-    for d in ["reconstruction/dense", "reconstruction/sparse", "extraction", "download"]:
+    dirs = ["reconstruction/dense", "reconstruction/sparse",
+            "extraction", "download"]
+    for d in dirs:
         (job_dir / d).mkdir(parents=True, exist_ok=True)
         (job_dir / d / "dummy.bin").write_bytes(b"\x00" * 1024)
     # 최종 결과물
@@ -94,7 +93,7 @@ class TestCleanupIntermediateFiles:
     """중간 파일 정리 테스트."""
 
     def test_cleans_old_intermediate_files(self):
-        headers = _auth_header()
+        _auth_header()
         user = _job_store.users.get_by_username("testuser")
         job_dir = _create_old_completed_job(user["id"], "aabbccddeeff")
 
@@ -112,7 +111,7 @@ class TestCleanupIntermediateFiles:
         assert (job_dir / "reconstruction/reconstruction_metadata.json").exists()
 
     def test_skips_recent_jobs(self):
-        headers = _auth_header()
+        _auth_header()
         user = _job_store.users.get_by_username("testuser")
         # 1일 전 생성 — 7일 TTL보다 최근
         _create_old_completed_job(user["id"], "aabbccddeeff", age_seconds=86400)
@@ -125,7 +124,7 @@ class TestCleanupExpiredResults:
     """최종 결과물 삭제 테스트."""
 
     def test_deletes_expired_jobs(self):
-        headers = _auth_header()
+        _auth_header()
         user = _job_store.users.get_by_username("testuser")
         # 31일 전 생성
         job_dir = _create_old_completed_job(
@@ -139,7 +138,7 @@ class TestCleanupExpiredResults:
         assert _job_store.get("aabbccddeeff") is None
 
     def test_keeps_recent_results(self):
-        headers = _auth_header()
+        _auth_header()
         user = _job_store.users.get_by_username("testuser")
         # 15일 전 — 30일 TTL 이내
         _create_old_completed_job(user["id"], "aabbccddeeff", age_seconds=15 * 86400)

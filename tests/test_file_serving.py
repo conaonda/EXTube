@@ -2,13 +2,10 @@
 
 from __future__ import annotations
 
-import os
 from pathlib import Path
-from unittest.mock import patch
 
 import pytest
 from fastapi.testclient import TestClient
-
 from src.api.config import get_settings
 from src.api.main import _job_store, app
 from src.api.rate_limit import RateLimitMiddleware
@@ -133,7 +130,7 @@ class TestResultEndpointAuth:
         assert resp.status_code == 200
 
     def test_invalid_query_token_returns_401(self):
-        user_a_header = _auth_header("user_a", "password123")
+        _auth_header("user_a", "password123")
         user = _job_store.users.get_by_username("user_a")
         job_id, _ = _create_job_with_ply(user["id"])
         resp = client.get(f"/api/jobs/{job_id}/result?token=invalid.token.here")
@@ -175,7 +172,8 @@ class TestPotreeEndpoint:
         _job_store._conn.execute(
             """INSERT INTO jobs (id, url, status, user_id, potree_dir, created_at)
                VALUES (?, ?, 'completed', ?, ?, strftime('%s', 'now'))""",
-            (job_id, "https://www.youtube.com/watch?v=test", user["id"], str(potree_dir)),
+            (job_id, "https://www.youtube.com/watch?v=test",
+             user["id"], str(potree_dir)),
         )
         _job_store._conn.commit()
 

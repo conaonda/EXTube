@@ -84,6 +84,8 @@ class RequestLoggingMiddleware:
         scope["state"] = {**scope.get("state", {}), "request_id": request_id}
 
         method = scope.get("method", "")
+        # ASGI scope["path"]는 query string을 포함하지 않으므로
+        # URL 토큰(?token=...)이 로그에 노출되지 않는다.
         path = scope.get("path", "")
         client = scope.get("client")
         client_host = client[0] if client else None
