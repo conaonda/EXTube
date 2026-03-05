@@ -94,6 +94,7 @@ class JobResponse(BaseModel):
     url: str
     error: str | None = None
     result: dict[str, Any] | None = None
+    gs_splat_url: str | None = None
 
 
 # Job 저장소 (SQLite)
@@ -253,6 +254,21 @@ def health_ready() -> dict[str, Any]:
 # --- Job 엔드포인트 ---
 
 
+def _build_response(job: dict[str, Any]) -> JobResponse:
+    """Job dict에서 JobResponse를 생성한다."""
+    gs_splat_url = None
+    if job.get("gs_splat_path"):
+        gs_splat_url = f"/api/jobs/{job['id']}/splat"
+    return JobResponse(
+        id=job["id"],
+        status=job["status"],
+        url=job["url"],
+        error=job.get("error"),
+        result=job.get("result"),
+        gs_splat_url=gs_splat_url,
+    )
+
+
 @app.post("/api/jobs", response_model=JobResponse, status_code=201)
 def create_job(body: JobCreate) -> JobResponse:
     """복원 작업을 생성한다."""
@@ -295,16 +311,7 @@ def list_jobs(
         offset=offset,
     )
     return JobListResponse(
-        items=[
-            JobResponse(
-                id=j["id"],
-                status=j["status"],
-                url=j["url"],
-                error=j.get("error"),
-                result=j.get("result"),
-            )
-            for j in result["items"]
-        ],
+        items=[_build_response(j) for j in result["items"]],
         total=result["total"],
     )
 
@@ -316,13 +323,7 @@ def get_job(job_id: str) -> JobResponse:
     if job is None:
         raise HTTPException(status_code=404, detail="작업을 찾을 수 없습니다")
 
-    return JobResponse(
-        id=job["id"],
-        status=job["status"],
-        url=job["url"],
-        error=job.get("error"),
-        result=job.get("result"),
-    )
+    return _build_response(job)
 
 
 @app.get("/api/jobs/{job_id}/stream")
@@ -420,6 +421,44 @@ def get_job_result(job_id: str) -> FileResponse:
         path=str(ply_resolved),
         media_type="application/x-ply",
         filename="points.ply",
+    )
+
+
+@app.get("/api/jobs/{job_id}/splat")
+def get_splat_file(job_id: str) -> FileResponse:
+    """Gaussian Splatting .ply/.splat 파일을 서빙한다."""
+    job = _job_store.get(job_id)
+    if job is None:
+        raise HTTPException(status_code=404, detail="작업을 찾을 수 없습니다")
+
+    if job["status"] != JobStatus.completed:
+        raise HTTPException(
+            status_code=400,
+            detail=f"작업이 완료되지 않았습니다 (상태: {job['status']})",
+        )
+
+    gs_splat_path = job.get("gs_splat_path")
+    if not gs_splat_path:
+        raise HTTPException(
+            status_code=404,
+            detail="Gaussian Splatting 결과를 찾을 수 없습니다",
+        )
+
+    splat_resolved = Path(gs_splat_path).resolve()
+    base_resolved = OUTPUT_BASE_DIR.resolve()
+    if not str(splat_resolved).startswith(str(base_resolved)):
+        raise HTTPException(status_code=400, detail="잘못된 파일 경로입니다")
+
+    if not splat_resolved.exists():
+        raise HTTPException(
+            status_code=404,
+            detail="Gaussian Splatting 결과 파일을 찾을 수 없습니다",
+        )
+
+    return FileResponse(
+        path=str(splat_resolved),
+        media_type="application/octet-stream",
+        filename=splat_resolved.name,
     )
 
 
