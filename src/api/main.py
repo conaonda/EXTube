@@ -847,11 +847,9 @@ def download_job_file(
 
 
 @app.websocket("/ws/jobs/{job_id}")
-async def ws_job_progress(
-    websocket: WebSocket, job_id: str, token: str | None = Query(default=None)
-) -> None:
+async def ws_job_progress(websocket: WebSocket, job_id: str) -> None:
     """WebSocket으로 작업 진행률을 실시간 전달한다."""
-    await websocket_job_handler(websocket, job_id, _job_store, token=token)
+    await websocket_job_handler(websocket, job_id, _job_store)
 
 
 def mount_static_files() -> None:

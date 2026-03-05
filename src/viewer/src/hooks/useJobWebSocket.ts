@@ -46,7 +46,7 @@ export function useJobWebSocket({
   }, [])
 
   useEffect(() => {
-    if (!jobId) return
+    if (!jobId || !token) return
 
     let stopped = false
 
@@ -54,9 +54,13 @@ export function useJobWebSocket({
       if (stopped) return
 
       const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
-      const params = token ? `?token=${encodeURIComponent(token)}` : ''
-      const ws = new WebSocket(`${protocol}//${window.location.host}/ws/jobs/${jobId}${params}`)
+      const ws = new WebSocket(`${protocol}//${window.location.host}/ws/jobs/${jobId}`)
       wsRef.current = ws
+
+      ws.onopen = () => {
+        // 연결 직후 첫 번째 메시지로 인증 토큰 전송
+        ws.send(JSON.stringify({ token }))
+      }
 
       ws.onmessage = (event) => {
         try {

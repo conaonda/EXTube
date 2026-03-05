@@ -66,27 +66,32 @@ def _insert_job(job_id: str, user_id: str | None = None, **fields) -> None:
         _job_store.update(job_id, **update_fields)
 
 
+def _ws_send_auth(ws, token: str) -> None:
+    """WebSocket 연결 후 첫 번째 메시지로 인증 토큰을 전송한다."""
+    ws.send_text(json.dumps({"token": token}))
+
+
 class TestWebSocketAuth:
     """WebSocket 인증 테스트."""
 
     def test_no_token_closes_with_4001(self):
-        """토큰 없이 연결하면 4001로 닫힌다."""
+        """토큰 없이 빈 메시지를 보내면 4001로 닫힌다."""
         token = _register_and_login()
         user_id = _get_user_id()
         _insert_job("authtest01", user_id=user_id)
         with pytest.raises(Exception):
             with client.websocket_connect("/ws/jobs/authtest01") as ws:
+                ws.send_text("")
                 ws.receive_text()
 
     def test_invalid_token_closes_with_4001(self):
-        """잘못된 토큰으로 연결하면 4001로 닫힌다."""
+        """잘못된 토큰으로 인증하면 4001로 닫힌다."""
         token = _register_and_login()
         user_id = _get_user_id()
         _insert_job("authtest02", user_id=user_id)
         with pytest.raises(Exception):
-            with client.websocket_connect(
-                "/ws/jobs/authtest02?token=invalid"
-            ) as ws:
+            with client.websocket_connect("/ws/jobs/authtest02") as ws:
+                ws.send_text(json.dumps({"token": "invalid"}))
                 ws.receive_text()
 
     def test_other_user_closes_with_4003(self):
@@ -97,9 +102,8 @@ class TestWebSocketAuth:
 
         other_token = _register_and_login(OTHER_USER, OTHER_PASS)
         with pytest.raises(Exception):
-            with client.websocket_connect(
-                f"/ws/jobs/authtest03?token={other_token}"
-            ) as ws:
+            with client.websocket_connect("/ws/jobs/authtest03") as ws:
+                _ws_send_auth(ws, other_token)
                 ws.receive_text()
 
 
@@ -110,9 +114,8 @@ class TestWebSocketEndpoint:
         """존재하지 않는 작업은 4004 코드로 닫힌다."""
         token = _register_and_login()
         with pytest.raises(Exception):
-            with client.websocket_connect(
-                f"/ws/jobs/nonexistent?token={token}"
-            ) as ws:
+            with client.websocket_connect("/ws/jobs/nonexistent") as ws:
+                _ws_send_auth(ws, token)
                 ws.receive_text()
 
     def test_connect_pending_job_receives_initial_status(self):
@@ -120,9 +123,8 @@ class TestWebSocketEndpoint:
         token = _register_and_login()
         user_id = _get_user_id()
         _insert_job("aabbccddeew1", user_id=user_id)
-        with client.websocket_connect(
-            f"/ws/jobs/aabbccddeew1?token={token}"
-        ) as ws:
+        with client.websocket_connect("/ws/jobs/aabbccddeew1") as ws:
+            _ws_send_auth(ws, token)
             data = json.loads(ws.receive_text())
             assert data["status"] == "pending"
             assert data["progress"] is None
@@ -137,9 +139,8 @@ class TestWebSocketEndpoint:
             status=JobStatus.completed,
             result={"num_points3d": 100},
         )
-        with client.websocket_connect(
-            f"/ws/jobs/aabbccddeew2?token={token}"
-        ) as ws:
+        with client.websocket_connect("/ws/jobs/aabbccddeew2") as ws:
+            _ws_send_auth(ws, token)
             data = json.loads(ws.receive_text())
             assert data["status"] == "completed"
             assert data["result"]["num_points3d"] == 100
@@ -154,9 +155,8 @@ class TestWebSocketEndpoint:
             status=JobStatus.failed,
             error="COLMAP 실패",
         )
-        with client.websocket_connect(
-            f"/ws/jobs/aabbccddeew3?token={token}"
-        ) as ws:
+        with client.websocket_connect("/ws/jobs/aabbccddeew3") as ws:
+            _ws_send_auth(ws, token)
             data = json.loads(ws.receive_text())
             assert data["status"] == "failed"
             assert data["error"] == "COLMAP 실패"
@@ -170,13 +170,22 @@ class TestWebSocketEndpoint:
             "aabbccddeew4",
             progress={"stage": "download", "percent": 50, "message": "다운로드 중"},
         )
-        with client.websocket_connect(
-            f"/ws/jobs/aabbccddeew4?token={token}"
-        ) as ws:
+        with client.websocket_connect("/ws/jobs/aabbccddeew4") as ws:
+            _ws_send_auth(ws, token)
             data = json.loads(ws.receive_text())
             assert data["status"] == "processing"
             assert data["progress"]["stage"] == "download"
             assert data["progress"]["percent"] == 50
+
+    def test_plain_token_string_auth(self):
+        """순수 토큰 문자열로도 인증할 수 있다."""
+        token = _register_and_login()
+        user_id = _get_user_id()
+        _insert_job("aabbccddeew5", user_id=user_id)
+        with client.websocket_connect("/ws/jobs/aabbccddeew5") as ws:
+            ws.send_text(token)
+            data = json.loads(ws.receive_text())
+            assert data["status"] == "pending"
 
 
 class TestJobProgressManager:
