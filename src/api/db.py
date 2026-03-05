@@ -143,6 +143,13 @@ class JobStore:
             self._conn.execute(f"UPDATE jobs SET {sets} WHERE id = ?", vals)  # noqa: S608
             self._conn.commit()
 
+    def delete(self, job_id: str) -> bool:
+        """Job 레코드를 삭제한다. 삭제 성공 시 True를 반환한다."""
+        with self._lock:
+            cursor = self._conn.execute("DELETE FROM jobs WHERE id = ?", (job_id,))
+            self._conn.commit()
+            return cursor.rowcount > 0
+
     def cleanup_expired(self, jobs_dir: Path, ttl: float = _JOB_TTL_SECONDS) -> int:
         """TTL이 지난 Job과 관련 파일을 삭제한다. 삭제된 수를 반환한다."""
         cutoff = time.time() - ttl
