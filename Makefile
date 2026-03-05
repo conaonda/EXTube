@@ -1,4 +1,4 @@
-.PHONY: lint test format install dev
+.PHONY: lint test test-e2e format install dev
 
 install:
 	pip install -e .
@@ -18,3 +18,6 @@ format:
 
 test:
 	pytest -v
+
+test-e2e:
+	pytest -v -m e2e
