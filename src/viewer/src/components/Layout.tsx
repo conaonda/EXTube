@@ -1,6 +1,9 @@
 import { Link, Outlet } from 'react-router-dom'
+import { useAuth } from '../contexts/AuthContext'
 
 export default function Layout() {
+  const { user, logout } = useAuth()
+
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100vh' }}>
       <header
@@ -23,6 +26,32 @@ export default function Layout() {
             히스토리
           </Link>
         </nav>
+        {user && (
+          <div
+            style={{
+              marginLeft: 'auto',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '0.75rem',
+              fontSize: '0.875rem',
+            }}
+          >
+            <span style={{ color: '#666' }}>{user.username}</span>
+            <button
+              onClick={logout}
+              style={{
+                padding: '0.25rem 0.5rem',
+                border: '1px solid #ccc',
+                borderRadius: '4px',
+                background: '#fff',
+                cursor: 'pointer',
+                fontSize: '0.8125rem',
+              }}
+            >
+              로그아웃
+            </button>
+          </div>
+        )}
       </header>
       <main style={{ flex: 1, position: 'relative' }}>
         <Outlet />
