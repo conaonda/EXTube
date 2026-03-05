@@ -150,9 +150,9 @@ def get_current_user_or_query_token(
 # --- 엔드포인트 ---
 
 
-@router.post("/register", response_model=UserResponse, status_code=201)
+@router.post("/register", response_model=UserResponse, status_code=201, summary="사용자 등록")
 def register(body: UserRegister) -> UserResponse:
-    """사용자를 등록한다."""
+    """새 사용자 계정을 등록한다."""
     store = _get_store()
     existing = store.users.get_by_username(body.username)
     if existing is not None:
@@ -166,9 +166,9 @@ def register(body: UserRegister) -> UserResponse:
     return UserResponse(**result)
 
 
-@router.post("/login", response_model=TokenResponse)
+@router.post("/login", response_model=TokenResponse, summary="로그인")
 def login(form: OAuth2PasswordRequestForm = Depends()) -> TokenResponse:
-    """로그인하고 JWT 토큰을 발급한다."""
+    """사용자명과 비밀번호로 로그인하고 JWT access/refresh 토큰을 발급한다."""
     store = _get_store()
     user = store.users.get_by_username(form.username)
     if user is None or not pwd_context.verify(form.password, user["hashed_password"]):
@@ -187,9 +187,9 @@ def login(form: OAuth2PasswordRequestForm = Depends()) -> TokenResponse:
     return TokenResponse(access_token=access_token, refresh_token=refresh_token)
 
 
-@router.post("/refresh", response_model=TokenResponse)
+@router.post("/refresh", response_model=TokenResponse, summary="토큰 갱신")
 def refresh(body: RefreshRequest) -> TokenResponse:
-    """refresh token으로 새 access token을 발급한다."""
+    """refresh token으로 새 access/refresh 토큰 쌍을 발급한다 (token rotation)."""
     settings = get_settings()
     try:
         payload = jwt.decode(
