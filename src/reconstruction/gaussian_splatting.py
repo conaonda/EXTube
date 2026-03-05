@@ -23,13 +23,13 @@ _VRAM_PRESETS: dict[str, dict] = {
         "pipeline.model.num_downscales": 2,
         "pipeline.model.cull_alpha_thresh": 0.005,
     },
-    "medium": {  # 9-16 GB
+    "medium": {  # 9-19 GB
         "max_num_iterations": 15000,
         "steps_per_eval_image": 500,
         "pipeline.model.num_downscales": 1,
         "pipeline.model.cull_alpha_thresh": 0.005,
     },
-    "high": {  # 16-24+ GB
+    "high": {  # 20+ GB
         "max_num_iterations": 30000,
         "steps_per_eval_image": 1000,
         "pipeline.model.num_downscales": 0,
