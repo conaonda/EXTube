@@ -92,6 +92,35 @@ class JobStore:
             self._conn.commit()
         return self._row_to_dict(job)
 
+    def list(
+        self,
+        status: str | None = None,
+        limit: int = 20,
+        offset: int = 0,
+    ) -> dict[str, Any]:
+        """Job 목록을 조회한다. 최신순 정렬, 페이지네이션 지원."""
+        params: list[Any] = []
+        where = ""
+        if status is not None:
+            where = " WHERE status = ?"
+            params.append(status)
+
+        with self._lock:
+            count_row = self._conn.execute(
+                f"SELECT COUNT(*) FROM jobs{where}",
+                params,  # noqa: S608
+            ).fetchone()
+            total = count_row[0]
+
+            query_params = params + [limit, offset]
+            rows = self._conn.execute(
+                f"SELECT * FROM jobs{where} ORDER BY created_at DESC LIMIT ? OFFSET ?",  # noqa: S608
+                query_params,
+            ).fetchall()
+
+        jobs = [self._row_to_dict(dict(row)) for row in rows]
+        return {"items": jobs, "total": total}
+
     def get(self, job_id: str) -> dict[str, Any] | None:
         with self._lock:
             row = self._conn.execute(

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import Layout from './components/Layout'
+import { useParams } from 'react-router-dom'
 import ViewerCanvas from './components/ViewerCanvas'
 import JobForm from './components/JobForm'
 import JobStatusBar from './components/JobStatus'
@@ -7,6 +7,7 @@ import { createJob, getJob, getPotreeUrl, getResultUrl } from './api'
 import type { Job } from './api'
 
 export default function App() {
+  const { jobId } = useParams<{ jobId?: string }>()
   const [job, setJob] = useState<Job | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [plyUrl, setPlyUrl] = useState<string | null>(null)
@@ -20,6 +21,63 @@ export default function App() {
     }
   }, [])
 
+  const startPolling = useCallback(
+    (id: string) => {
+      pollingRef.current = setInterval(async () => {
+        try {
+          const updated = await getJob(id)
+          setJob(updated)
+          if (updated.status === 'completed') {
+            stopPolling()
+            if (updated.result?.has_potree) {
+              setPotreeUrl(getPotreeUrl(updated.id))
+            } else {
+              setPlyUrl(getResultUrl(updated.id))
+            }
+          } else if (updated.status === 'failed') {
+            stopPolling()
+          }
+        } catch {
+          stopPolling()
+          setError('작업 상태 조회 실패')
+        }
+      }, 2000)
+    },
+    [stopPolling],
+  )
+
+  const loadJob = useCallback(
+    async (id: string) => {
+      setError(null)
+      setPlyUrl(null)
+      setPotreeUrl(null)
+      stopPolling()
+
+      try {
+        const loaded = await getJob(id)
+        setJob(loaded)
+        if (loaded.status === 'completed') {
+          if (loaded.result?.has_potree) {
+            setPotreeUrl(getPotreeUrl(loaded.id))
+          } else {
+            setPlyUrl(getResultUrl(loaded.id))
+          }
+        } else if (loaded.status === 'pending' || loaded.status === 'processing') {
+          startPolling(loaded.id)
+        }
+      } catch {
+        setError('작업을 찾을 수 없습니다')
+      }
+    },
+    [stopPolling, startPolling],
+  )
+
+  // Load job from URL param
+  useEffect(() => {
+    if (!jobId) return
+    loadJob(jobId) // eslint-disable-line react-hooks/set-state-in-effect -- loading from URL param is valid
+  }, [jobId, loadJob])
+
   const handleSubmit = useCallback(
     async (url: string) => {
       setError(null)
@@ -30,31 +88,12 @@ export default function App() {
       try {
         const created = await createJob(url)
         setJob(created)
-
-        pollingRef.current = setInterval(async () => {
-          try {
-            const updated = await getJob(created.id)
-            setJob(updated)
-            if (updated.status === 'completed') {
-              stopPolling()
-              if (updated.result?.has_potree) {
-                setPotreeUrl(getPotreeUrl(updated.id))
-              } else {
-                setPlyUrl(getResultUrl(updated.id))
-              }
-            } else if (updated.status === 'failed') {
-              stopPolling()
-            }
-          } catch {
-            stopPolling()
-            setError('작업 상태 조회 실패')
-          }
-        }, 2000)
+        startPolling(created.id)
       } catch (err) {
         setError(err instanceof Error ? err.message : '작업 생성 실패')
       }
     },
-    [stopPolling],
+    [stopPolling, startPolling],
   )
 
   useEffect(() => {
@@ -65,7 +104,7 @@ export default function App() {
     job !== null && (job.status === 'pending' || job.status === 'processing')
 
   return (
-    <Layout>
+    <>
       <div
         style={{
           position: 'absolute',
@@ -95,6 +134,6 @@ export default function App() {
         {job && <JobStatusBar job={job} />}
       </div>
       <ViewerCanvas plyUrl={plyUrl} potreeUrl={potreeUrl} />
-    </Layout>
+    </>
   )
 }
