@@ -65,3 +65,50 @@ class TestJobStore:
         deleted = store.cleanup_expired(tmp_path, ttl=86400)
         assert deleted == 0
         assert store.get("abc123def456") is not None
+
+
+class TestCreateIfUnderLimit:
+    """create_if_under_limit 원자적 Job 생성 테스트."""
+
+    def test_under_limit_creates(self, store):
+        """제한 이내이면 Job이 생성된다."""
+        result = store.create_if_under_limit(
+            "aabb11223344", "pending", "https://youtu.be/abc",
+            user_id="user1", max_active=2,
+        )
+        assert result is not None
+        assert result["id"] == "aabb11223344"
+        assert store.get("aabb11223344") is not None
+
+    def test_at_limit_returns_none(self, store):
+        """제한에 도달하면 None을 반환하고 Job이 생성되지 않는다."""
+        store.create("aabb11223301", "pending", "https://youtu.be/a", user_id="user1")
+        store.create(
+            "aabb11223302", "processing", "https://youtu.be/b", user_id="user1",
+        )
+        result = store.create_if_under_limit(
+            "aabb11223303", "pending", "https://youtu.be/c",
+            user_id="user1", max_active=2,
+        )
+        assert result is None
+        assert store.get("aabb11223303") is None
+
+    def test_completed_not_counted(self, store):
+        """완료된 Job은 활성 수에 포함되지 않는다."""
+        store.create("aabb11223304", "completed", "https://youtu.be/a", user_id="user1")
+        store.create("aabb11223305", "pending", "https://youtu.be/b", user_id="user1")
+        result = store.create_if_under_limit(
+            "aabb11223306", "pending", "https://youtu.be/c",
+            user_id="user1", max_active=2,
+        )
+        assert result is not None
+
+    def test_different_user_not_counted(self, store):
+        """다른 사용자의 Job은 제한에 포함되지 않는다."""
+        store.create("aabb11223307", "pending", "https://youtu.be/a", user_id="user2")
+        store.create("aabb11223308", "pending", "https://youtu.be/b", user_id="user2")
+        result = store.create_if_under_limit(
+            "aabb11223309", "pending", "https://youtu.be/c",
+            user_id="user1", max_active=2,
+        )
+        assert result is not None

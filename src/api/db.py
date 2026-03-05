@@ -287,6 +287,60 @@ class JobStore:
             self._conn.execute(f"UPDATE jobs SET {sets} WHERE id = ?", vals)  # noqa: S608
             self._conn.commit()
 
+    # NOTE: 멀티 워커 환경 전환 시 Redis INCR + TTL 패턴으로 교체 가능.
+    # 예: INCR user:{user_id}:active_jobs → 제한 초과 시 DECR 후 거부
+    def create_if_under_limit(
+        self,
+        job_id: str,
+        status: str,
+        url: str,
+        user_id: str,
+        max_active: int,
+        active_statuses: list[str] | None = None,
+    ) -> dict[str, Any] | None:
+        """활성 Job 수가 제한 이내일 때만 원자적으로 Job을 생성한다.
+
+        제한 초과 시 None을 반환한다.
+        """
+        if active_statuses is None:
+            active_statuses = ["pending", "processing"]
+        placeholders = ", ".join("?" for _ in active_statuses)
+        with self._lock:
+            row = self._conn.execute(
+                f"SELECT COUNT(*) FROM jobs"  # noqa: S608
+                f" WHERE user_id = ? AND status IN ({placeholders})",
+                [user_id, *active_statuses],
+            ).fetchone()
+            count = row[0]
+            if count >= max_active:
+                return None
+            job = {
+                "id": job_id,
+                "status": status,
+                "url": url,
+                "error": None,
+                "result": None,
+                "ply_path": None,
+                "dense_ply_path": None,
+                "gs_splat_path": None,
+                "potree_dir": None,
+                "progress": None,
+                "user_id": user_id,
+                "created_at": time.time(),
+            }
+            sql = (
+                "INSERT INTO jobs"
+                " (id, status, url, error, result, ply_path,"
+                " dense_ply_path, gs_splat_path, potree_dir,"
+                " progress, user_id, created_at)"
+                " VALUES (:id, :status, :url, :error, :result,"
+                " :ply_path, :dense_ply_path, :gs_splat_path,"
+                " :potree_dir, :progress, :user_id, :created_at)"
+            )
+            self._conn.execute(sql, job)
+            self._conn.commit()
+        return self._row_to_dict(job)
+
     def delete(self, job_id: str) -> bool:
         """Job 레코드를 삭제한다. 삭제 성공 시 True를 반환한다."""
         with self._lock:

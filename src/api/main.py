@@ -254,20 +254,20 @@ def create_job(
             detail=f"유효하지 않은 유튜브 URL: {sanitized_url}",
         )
 
-    # 사용자별 동시 실행 제한 확인
-    active_statuses = [JobStatus.pending, JobStatus.processing]
-    active_count = 0
-    for s in active_statuses:
-        result = _job_store.list(status=s.value, user_id=current_user["id"], limit=0)
-        active_count += result["total"]
-    if active_count >= _settings.max_jobs_per_user:
+    # 사용자별 동시 실행 제한 확인 + Job 생성 (원자적)
+    job_id = uuid.uuid4().hex[:12]
+    job = _job_store.create_if_under_limit(
+        job_id=job_id,
+        status=JobStatus.pending,
+        url=body.url,
+        user_id=current_user["id"],
+        max_active=_settings.max_jobs_per_user,
+    )
+    if job is None:
         raise HTTPException(
             status_code=429,
             detail=f"동시 실행 제한 초과: 최대 {_settings.max_jobs_per_user}개",
         )
-
-    job_id = uuid.uuid4().hex[:12]
-    _job_store.create(job_id, JobStatus.pending, body.url, user_id=current_user["id"])
 
     _enqueue_job(job_id, body)
 
