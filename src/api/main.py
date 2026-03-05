@@ -18,12 +18,14 @@ from enum import StrEnum
 from pathlib import Path
 from typing import Any
 
-from fastapi import FastAPI, HTTPException, Query, WebSocket
+from fastapi import Depends, FastAPI, HTTPException, Query, WebSocket
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
+from src.api.auth import get_current_user, set_job_store
+from src.api.auth import router as auth_router
 from src.api.config import get_settings
 from src.api.db import JobStore
 from src.api.rate_limit import RateLimitMiddleware, RateLimitRule
@@ -48,7 +50,10 @@ async def _lifespan(application: FastAPI) -> AsyncIterator[None]:
     yield
 
 
-app = FastAPI(title="EXTube API", version="0.3.0", lifespan=_lifespan)
+app = FastAPI(title="EXTube API", version="0.4.0", lifespan=_lifespan)
+
+# 인증 라우터
+app.include_router(auth_router)
 
 # CORS 설정
 app.add_middleware(
@@ -112,6 +117,7 @@ class JobResponse(BaseModel):
 
 # Job 저장소 (SQLite)
 _job_store = JobStore(db_path=_settings.db_path)
+set_job_store(_job_store)
 
 # ThreadPoolExecutor로 동시 작업 수 제한
 _executor = ThreadPoolExecutor(max_workers=_MAX_WORKERS)
@@ -286,7 +292,10 @@ def _build_response(job: dict[str, Any]) -> JobResponse:
 
 
 @app.post("/api/jobs", response_model=JobResponse, status_code=201)
-def create_job(body: JobCreate) -> JobResponse:
+def create_job(
+    body: JobCreate,
+    current_user: dict = Depends(get_current_user),
+) -> JobResponse:
     """복원 작업을 생성한다."""
     if not validate_youtube_url(body.url):
         sanitized_url = _sanitize_for_message(body.url)
@@ -296,7 +305,7 @@ def create_job(body: JobCreate) -> JobResponse:
         )
 
     job_id = uuid.uuid4().hex[:12]
-    _job_store.create(job_id, JobStatus.pending, body.url)
+    _job_store.create(job_id, JobStatus.pending, body.url, user_id=current_user["id"])
 
     _executor.submit(_run_pipeline, job_id, body)
 
@@ -319,12 +328,14 @@ def list_jobs(
     status: JobStatus | None = Query(None),
     limit: int = Query(20, ge=1, le=100),
     offset: int = Query(0, ge=0),
+    current_user: dict = Depends(get_current_user),
 ) -> JobListResponse:
-    """Job 목록을 조회한다."""
+    """Job 목록을 조회한다. 본인의 Job만 반환한다."""
     result = _job_store.list(
         status=status.value if status else None,
         limit=limit,
         offset=offset,
+        user_id=current_user["id"],
     )
     return JobListResponse(
         items=[_build_response(j) for j in result["items"]],
@@ -332,22 +343,33 @@ def list_jobs(
     )
 
 
-@app.get("/api/jobs/{job_id}", response_model=JobResponse)
-def get_job(job_id: str) -> JobResponse:
-    """작업 상태를 조회한다."""
+def _get_user_job(job_id: str, current_user: dict) -> dict:
+    """Job을 조회하고 소유권을 확인한다."""
     job = _job_store.get(job_id)
     if job is None:
         raise HTTPException(status_code=404, detail="작업을 찾을 수 없습니다")
+    if job.get("user_id") is not None and job["user_id"] != current_user["id"]:
+        raise HTTPException(status_code=403, detail="접근 권한이 없습니다")
+    return job
 
+
+@app.get("/api/jobs/{job_id}", response_model=JobResponse)
+def get_job(
+    job_id: str,
+    current_user: dict = Depends(get_current_user),
+) -> JobResponse:
+    """작업 상태를 조회한다."""
+    job = _get_user_job(job_id, current_user)
     return _build_response(job)
 
 
 @app.delete("/api/jobs/{job_id}", status_code=204)
-def delete_job(job_id: str) -> None:
+def delete_job(
+    job_id: str,
+    current_user: dict = Depends(get_current_user),
+) -> None:
     """작업을 삭제하고 관련 파일을 정리한다."""
-    job = _job_store.get(job_id)
-    if job is None:
-        raise HTTPException(status_code=404, detail="작업을 찾을 수 없습니다")
+    job = _get_user_job(job_id, current_user)
 
     if job["status"] == JobStatus.processing:
         raise HTTPException(
@@ -367,11 +389,12 @@ def delete_job(job_id: str) -> None:
 
 
 @app.get("/api/jobs/{job_id}/stream")
-async def stream_job(job_id: str) -> StreamingResponse:
+async def stream_job(
+    job_id: str,
+    current_user: dict = Depends(get_current_user),
+) -> StreamingResponse:
     """SSE로 작업 진행률을 실시간 스트리밍한다."""
-    job = _job_store.get(job_id)
-    if job is None:
-        raise HTTPException(status_code=404, detail="작업을 찾을 수 없습니다")
+    _get_user_job(job_id, current_user)
 
     async def event_generator():
         last_progress = None
@@ -424,11 +447,12 @@ async def stream_job(job_id: str) -> StreamingResponse:
 
 
 @app.get("/api/jobs/{job_id}/result")
-def get_job_result(job_id: str) -> FileResponse:
+def get_job_result(
+    job_id: str,
+    current_user: dict = Depends(get_current_user),
+) -> FileResponse:
     """복원 결과물(PLY)을 다운로드한다."""
-    job = _job_store.get(job_id)
-    if job is None:
-        raise HTTPException(status_code=404, detail="작업을 찾을 수 없습니다")
+    job = _get_user_job(job_id, current_user)
 
     if job["status"] != JobStatus.completed:
         raise HTTPException(
@@ -465,11 +489,12 @@ def get_job_result(job_id: str) -> FileResponse:
 
 
 @app.get("/api/jobs/{job_id}/splat")
-def get_splat_file(job_id: str) -> FileResponse:
+def get_splat_file(
+    job_id: str,
+    current_user: dict = Depends(get_current_user),
+) -> FileResponse:
     """Gaussian Splatting .ply/.splat 파일을 서빙한다."""
-    job = _job_store.get(job_id)
-    if job is None:
-        raise HTTPException(status_code=404, detail="작업을 찾을 수 없습니다")
+    job = _get_user_job(job_id, current_user)
 
     if job["status"] != JobStatus.completed:
         raise HTTPException(
@@ -503,11 +528,13 @@ def get_splat_file(job_id: str) -> FileResponse:
 
 
 @app.get("/api/jobs/{job_id}/potree/{file_path:path}")
-def get_potree_file(job_id: str, file_path: str) -> FileResponse:
+def get_potree_file(
+    job_id: str,
+    file_path: str,
+    current_user: dict = Depends(get_current_user),
+) -> FileResponse:
     """Potree octree 파일을 서빙한다."""
-    job = _job_store.get(job_id)
-    if job is None:
-        raise HTTPException(status_code=404, detail="작업을 찾을 수 없습니다")
+    job = _get_user_job(job_id, current_user)
 
     if job["status"] != JobStatus.completed:
         raise HTTPException(
@@ -542,11 +569,12 @@ def get_potree_file(job_id: str, file_path: str) -> FileResponse:
 
 
 @app.get("/api/jobs/{job_id}/files")
-def list_job_files(job_id: str) -> dict[str, Any]:
+def list_job_files(
+    job_id: str,
+    current_user: dict = Depends(get_current_user),
+) -> dict[str, Any]:
     """완료된 Job의 결과 디렉토리 내 파일 목록을 반환한다."""
-    job = _job_store.get(job_id)
-    if job is None:
-        raise HTTPException(status_code=404, detail="작업을 찾을 수 없습니다")
+    job = _get_user_job(job_id, current_user)
 
     if job["status"] != JobStatus.completed:
         raise HTTPException(
@@ -579,11 +607,13 @@ def list_job_files(job_id: str) -> dict[str, Any]:
 
 
 @app.get("/api/jobs/{job_id}/download/{file_path:path}")
-def download_job_file(job_id: str, file_path: str) -> FileResponse:
+def download_job_file(
+    job_id: str,
+    file_path: str,
+    current_user: dict = Depends(get_current_user),
+) -> FileResponse:
     """완료된 Job의 결과 파일을 다운로드한다."""
-    job = _job_store.get(job_id)
-    if job is None:
-        raise HTTPException(status_code=404, detail="작업을 찾을 수 없습니다")
+    job = _get_user_job(job_id, current_user)
 
     if job["status"] != JobStatus.completed:
         raise HTTPException(

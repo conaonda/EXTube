@@ -26,6 +26,12 @@ class Settings(BaseSettings):
     # CORS (쉼표 구분 문자열)
     cors_origins: str = "http://localhost:5173,http://localhost:3000"
 
+    # JWT 인증
+    jwt_secret_key: str = "change-me-in-production"
+    jwt_algorithm: str = "HS256"
+    access_token_expire_minutes: int = 30
+    refresh_token_expire_days: int = 7
+
     @property
     def cors_origin_list(self) -> list[str]:
         return [o.strip() for o in self.cors_origins.split(",") if o.strip()]
