@@ -24,27 +24,25 @@ export default function JobStatus({ job, progress }: JobStatusProps) {
 
   return (
     <div
-      style={{
-        padding: '0.5rem 0.75rem',
-        background: job.status === 'failed' ? '#fef2f2' : '#f0f9ff',
-        borderRadius: '4px',
-        fontSize: '0.875rem',
-      }}
+      className={`job-status ${job.status === 'failed' ? 'job-status--failed' : 'job-status--default'}`}
+      role="status"
+      aria-label={`작업 상태: ${label}`}
+      aria-live="polite"
     >
       <strong>{label}</strong>
       {progress && job.status === 'processing' && (
-        <span style={{ marginLeft: '0.5rem', color: '#1d4ed8' }}>
+        <span className="job-status-progress">
           {STAGE_LABELS[progress.stage] ?? progress.stage} {progress.percent}%
           {progress.message && ` — ${progress.message}`}
         </span>
       )}
       {job.error && (
-        <span style={{ color: '#dc2626', marginLeft: '0.5rem' }}>
+        <span className="job-status-error">
           {job.error}
         </span>
       )}
       {job.result && (
-        <span style={{ color: '#666', marginLeft: '0.5rem' }}>
+        <span className="job-status-result">
           포인트: {job.result.num_points3d.toLocaleString()} | 카메라:{' '}
           {job.result.num_registered}
         </span>

@@ -29,20 +29,9 @@ export default function ViewerControls({
 }: ViewerControlsProps) {
   return (
     <div
-      style={{
-        position: 'absolute',
-        bottom: '1rem',
-        right: '1rem',
-        zIndex: 10,
-        background: 'rgba(255,255,255,0.9)',
-        borderRadius: '8px',
-        padding: '0.75rem',
-        fontSize: '0.8rem',
-        display: 'flex',
-        flexDirection: 'column',
-        gap: '0.5rem',
-        minWidth: '180px',
-      }}
+      className="viewer-controls"
+      role="toolbar"
+      aria-label="3D 뷰어 컨트롤"
     >
       <div>
         <label>
@@ -54,68 +43,50 @@ export default function ViewerControls({
             step="0.001"
             value={pointSize}
             onChange={(e) => onPointSizeChange(Number(e.target.value))}
-            style={{ width: '100%' }}
+            className="viewer-controls-range"
+            aria-label="포인트 크기 조절"
           />
         </label>
       </div>
 
-      <div style={{ display: 'flex', gap: '0.25rem' }}>
+      <div className="viewer-controls-row">
         {BG_COLORS.map((c) => (
           <button
             key={c.value}
             onClick={() => onBgColorChange(c.value)}
+            className={`viewer-controls-bg-btn ${bgColor === c.value ? 'viewer-controls-bg-btn--active' : ''}`}
             style={{
-              flex: 1,
-              padding: '0.25rem',
-              border:
-                bgColor === c.value ? '2px solid #2563eb' : '1px solid #ccc',
-              borderRadius: '4px',
               background: c.value,
               color: c.value === '#000000' ? '#fff' : '#000',
-              cursor: 'pointer',
-              fontSize: '0.7rem',
             }}
+            aria-label={`배경색 ${c.label}`}
+            aria-pressed={bgColor === c.value}
           >
             {c.label}
           </button>
         ))}
       </div>
 
-      <div style={{ display: 'flex', gap: '0.25rem' }}>
+      <div className="viewer-controls-row">
         <button
           onClick={onResetCamera}
-          style={{
-            flex: 1,
-            padding: '0.25rem 0.5rem',
-            border: '1px solid #ccc',
-            borderRadius: '4px',
-            background: '#f3f4f6',
-            cursor: 'pointer',
-            fontSize: '0.75rem',
-          }}
+          className="viewer-controls-btn"
+          aria-label="카메라 위치 초기화"
         >
           카메라 리셋
         </button>
         <button
           onClick={onToggleBoundingBox}
-          style={{
-            flex: 1,
-            padding: '0.25rem 0.5rem',
-            border: showBoundingBox
-              ? '2px solid #2563eb'
-              : '1px solid #ccc',
-            borderRadius: '4px',
-            background: showBoundingBox ? '#dbeafe' : '#f3f4f6',
-            cursor: 'pointer',
-            fontSize: '0.75rem',
-          }}
+          className={`viewer-controls-btn ${showBoundingBox ? 'viewer-controls-btn--active' : ''}`}
+          aria-label="바운딩 박스 표시 토글"
+          aria-pressed={showBoundingBox}
         >
           바운딩 박스
         </button>
       </div>
 
       {pointCount !== null && (
-        <div style={{ color: '#666', fontSize: '0.75rem' }}>
+        <div className="viewer-controls-info" aria-label="포인트 수 정보">
           포인트 수: {pointCount.toLocaleString()}
           {isPotree && ' (LoD)'}
         </div>
