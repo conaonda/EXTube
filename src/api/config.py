@@ -18,6 +18,7 @@ class Settings(BaseSettings):
     gpu_concurrency: int = 1
     job_ttl_seconds: int = 24 * 60 * 60  # 24시간
     sse_timeout_seconds: int = 30 * 60  # 30분
+    max_jobs_per_user: int = 2  # 사용자별 동시 실행 제한
 
     # 경로
     output_base_dir: Path = Path("data/jobs")
