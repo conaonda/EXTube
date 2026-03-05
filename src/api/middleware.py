@@ -14,6 +14,56 @@ from src.api.logging_config import generate_request_id
 logger = structlog.get_logger("api.middleware")
 
 
+class SecurityHeadersMiddleware:
+    """OWASP 권장 보안 헤더를 응답에 추가하는 ASGI 미들웨어."""
+
+    # 기본 보안 헤더 (환경 무관)
+    _BASE_HEADERS: list[tuple[bytes, bytes]] = [
+        (b"x-content-type-options", b"nosniff"),
+        (b"x-frame-options", b"DENY"),
+        (b"x-xss-protection", b"0"),
+        (b"referrer-policy", b"strict-origin-when-cross-origin"),
+        (b"permissions-policy", b"camera=(), microphone=(), geolocation=()"),
+    ]
+
+    # 프로덕션 전용 헤더
+    _PROD_HEADERS: list[tuple[bytes, bytes]] = [
+        (b"strict-transport-security", b"max-age=31536000; includeSubDomains"),
+        (
+            b"content-security-policy",
+            b"default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline';"
+            b" img-src 'self' data: blob:; connect-src 'self'; font-src 'self';"
+            b" object-src 'none'; frame-ancestors 'none'; base-uri 'self'",
+        ),
+    ]
+
+    def __init__(self, app: ASGIApp, environment: str = "development") -> None:
+        self.app = app
+        self._headers = list(self._BASE_HEADERS)
+        if environment == "production":
+            self._headers.extend(self._PROD_HEADERS)
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        if scope["type"] != "http":
+            await self.app(scope, receive, send)
+            return
+
+        security_headers = self._headers
+
+        async def send_wrapper(message: dict) -> None:
+            if message["type"] == "http.response.start":
+                headers = list(message.get("headers", []))
+                # 서버 정보 헤더 제거
+                headers = [
+                    (k, v) for k, v in headers if k.lower() != b"server"
+                ]
+                headers.extend(security_headers)
+                message = {**message, "headers": headers}
+            await send(message)
+
+        await self.app(scope, receive, send_wrapper)
+
+
 class RequestLoggingMiddleware:
     """요청/응답을 구조화된 로그로 기록하는 순수 ASGI 미들웨어.
 

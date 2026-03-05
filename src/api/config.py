@@ -34,6 +34,9 @@ class Settings(BaseSettings):
     retry_base_delay: int = 10  # 초 (지수 백오프: 10s, 30s, 90s)
     retry_backoff_multiplier: int = 3
 
+    # 환경 설정
+    environment: str = "development"  # development | production
+
     # CORS (쉼표 구분 문자열)
     cors_origins: str = "http://localhost:5173,http://localhost:3000"
 
