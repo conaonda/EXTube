@@ -50,6 +50,9 @@ export default function PotreePointCloud({
           defaultPointSize: defaultSize,
         })
       })
+      .catch((err: unknown) => {
+        console.error('[PotreePointCloud] Load failed:', err)
+      })
 
     const group = groupRef.current
     return () => {
