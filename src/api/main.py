@@ -212,6 +212,7 @@ class JobCreate(BaseModel):
     max_image_size: int = Field(0, description="COLMAP 입력 이미지 최대 크기 (0=제한 없음)")
     gaussian_splatting: bool = Field(False, description="3D Gaussian Splatting 수행 여부")
     gs_max_iterations: int | None = Field(None, description="Gaussian Splatting 최대 반복 횟수")
+    force_reprocess: bool = Field(False, description="기존 완료된 결과가 있어도 강제 재처리")
 
 
 class JobResponse(BaseModel):
@@ -339,6 +340,12 @@ def create_job(
             status_code=400,
             detail=f"유효하지 않은 유튜브 URL: {sanitized_url}",
         )
+
+    # 동일 URL 중복 처리 방지
+    if not body.force_reprocess:
+        existing = _job_store.find_completed_by_url(body.url)
+        if existing is not None:
+            return _build_response(existing)
 
     # 사용자별 동시 실행 제한 확인
     active_statuses = [JobStatus.pending, JobStatus.processing, JobStatus.retrying]

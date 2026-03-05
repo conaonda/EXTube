@@ -220,6 +220,49 @@ class TestJobConcurrencyLimit:
         assert resp.status_code == 429
 
 
+class TestDuplicateUrlPrevention:
+    """동일 URL 중복 처리 방지 테스트."""
+
+    @patch("src.api.main._enqueue_job")
+    def test_duplicate_url_returns_existing_job(self, mock_enqueue):
+        """동일 URL의 완료된 Job이 있으면 기존 결과를 반환한다."""
+        headers = _get_auth_headers()
+        url = "https://www.youtube.com/watch?v=dQw4w9WgXcQ"
+        _insert_job("aabbccddeef0", status=JobStatus.completed, url=url)
+        resp = client.post("/api/jobs", json={"url": url}, headers=headers)
+        assert resp.status_code == 201
+        assert resp.json()["id"] == "aabbccddeef0"
+        assert resp.json()["status"] == "completed"
+        mock_enqueue.assert_not_called()
+
+    @patch("src.api.main._enqueue_job")
+    def test_force_reprocess_creates_new_job(self, mock_enqueue):
+        """force_reprocess=true이면 기존 결과가 있어도 새 Job을 생성한다."""
+        headers = _get_auth_headers()
+        url = "https://www.youtube.com/watch?v=dQw4w9WgXcQ"
+        _insert_job("aabbccddeef0", status=JobStatus.completed, url=url)
+        resp = client.post(
+            "/api/jobs",
+            json={"url": url, "force_reprocess": True},
+            headers=headers,
+        )
+        assert resp.status_code == 201
+        assert resp.json()["id"] != "aabbccddeef0"
+        assert resp.json()["status"] == "pending"
+        mock_enqueue.assert_called_once()
+
+    @patch("src.api.main._enqueue_job")
+    def test_no_completed_job_creates_new(self, mock_enqueue):
+        """완료된 Job이 없으면 새 Job을 생성한다."""
+        headers = _get_auth_headers()
+        url = "https://www.youtube.com/watch?v=dQw4w9WgXcQ"
+        _insert_job("aabbccddeef0", status=JobStatus.failed, url=url, error="err")
+        resp = client.post("/api/jobs", json={"url": url}, headers=headers)
+        assert resp.status_code == 201
+        assert resp.json()["id"] != "aabbccddeef0"
+        mock_enqueue.assert_called_once()
+
+
 class TestGetJob:
     """GET /api/jobs/{id} 테스트."""
 

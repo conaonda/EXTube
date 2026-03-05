@@ -196,6 +196,9 @@ class JobStore:
             self._conn.execute(
                 "CREATE INDEX IF NOT EXISTS idx_jobs_user_id ON jobs(user_id)"
             )
+        self._conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_jobs_url ON jobs(url)"
+        )
         self._conn.commit()
 
     def create(
@@ -347,6 +350,18 @@ class JobStore:
             "total_mb": round(total_bytes / (1024 * 1024), 2),
             "job_count": job_count,
         }
+
+    def find_completed_by_url(self, url: str) -> dict[str, Any] | None:
+        """동일 URL로 완료된 가장 최근 Job을 반환한다."""
+        with self._lock:
+            row = self._conn.execute(
+                "SELECT * FROM jobs WHERE url = ? AND status = 'completed'"
+                " ORDER BY created_at DESC LIMIT 1",
+                (url,),
+            ).fetchone()
+        if row is None:
+            return None
+        return self._row_to_dict(dict(row))
 
     def fail_stale_jobs(self, statuses: list[str], error: str) -> int:
         """지정된 상태의 Job을 모두 failed로 전환한다. 전환된 수를 반환한다."""
