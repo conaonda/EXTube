@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import asyncio
 import json
-import logging
 import re
 import shutil
 import time
@@ -27,6 +26,8 @@ from src.api.auth import get_current_user, set_job_store
 from src.api.auth import router as auth_router
 from src.api.config import get_settings
 from src.api.db import JobStore
+from src.api.logging_config import get_logger, setup_logging
+from src.api.middleware import RequestLoggingMiddleware, register_exception_handlers
 from src.api.rate_limit import RateLimitMiddleware, RateLimitRule
 from src.api.tasks import run_pipeline
 from src.api.ws import (
@@ -36,9 +37,12 @@ from src.api.ws import (
 )
 from src.downloader import validate_youtube_url
 
-logger = logging.getLogger(__name__)
-
 _settings = get_settings()
+
+# 모듈 임포트 시점에 로깅 초기화 (cache_logger_on_first_use=False와 함께 사용)
+setup_logging(json_format=_settings.log_json, log_level=_settings.log_level)
+
+logger = get_logger(__name__)
 
 
 def _get_redis_connection() -> redis.Redis:
@@ -100,6 +104,12 @@ app.add_middleware(
         ("POST", "/api/jobs"): RateLimitRule(max_requests=5, window_seconds=3600),
     },
 )
+
+# 요청/응답 로깅 미들웨어
+app.add_middleware(RequestLoggingMiddleware)
+
+# 글로벌 예외 핸들러
+register_exception_handlers(app)
 
 OUTPUT_BASE_DIR = _settings.output_base_dir
 STATIC_DIR = Path(__file__).resolve().parent.parent / "viewer" / "dist"
