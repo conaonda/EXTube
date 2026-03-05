@@ -19,6 +19,8 @@ class Settings(BaseSettings):
     job_ttl_seconds: int = 24 * 60 * 60  # 24시간
     sse_timeout_seconds: int = 30 * 60  # 30분
     max_jobs_per_user: int = 2  # 사용자별 동시 실행 제한
+    max_video_duration_seconds: int = 600  # 최대 영상 길이 (기본 10분)
+    max_video_filesize_mb: int = 500  # 최대 예상 파일 크기 (MB)
 
     # Redis / RQ
     redis_url: str = "redis://localhost:6379"

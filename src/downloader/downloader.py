@@ -30,6 +30,48 @@ def validate_youtube_url(url: str) -> bool:
     return bool(YOUTUBE_URL_PATTERN.match(url))
 
 
+@dataclass
+class VideoMetadata:
+    """영상 메타데이터."""
+
+    duration: float  # 초
+    title: str
+    video_id: str
+    height: int | None
+    filesize_approx: int | None  # 바이트 (추정)
+
+
+def fetch_video_metadata(url: str) -> VideoMetadata:
+    """yt-dlp로 영상 메타데이터를 사전 조회한다 (다운로드 없이).
+
+    Raises:
+        ValueError: 유효하지 않은 URL
+        RuntimeError: 메타데이터 조회 실패
+    """
+    if not validate_youtube_url(url):
+        raise ValueError(f"유효하지 않은 유튜브 URL: {url}")
+
+    ydl_opts = {
+        "quiet": True,
+        "no_warnings": True,
+        "skip_download": True,
+    }
+
+    with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+        try:
+            info = ydl.extract_info(url, download=False)
+        except yt_dlp.utils.DownloadError as e:
+            raise RuntimeError(f"메타데이터 조회 실패: {e}") from e
+
+    return VideoMetadata(
+        duration=info.get("duration") or 0,
+        title=info.get("title", ""),
+        video_id=info["id"],
+        height=info.get("height"),
+        filesize_approx=info.get("filesize_approx") or info.get("filesize"),
+    )
+
+
 def download_video(
     url: str,
     output_dir: Path,
