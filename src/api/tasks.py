@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import datetime
 import json
 import re
 import time
@@ -9,6 +10,7 @@ from pathlib import Path
 from typing import Any
 
 import redis
+from rq import Queue
 
 from src.api.config import get_settings
 from src.api.db import JobStore
@@ -17,6 +19,35 @@ from src.api.logging_config import get_logger
 logger = get_logger(__name__)
 
 _settings = get_settings()
+
+# 재시도 가능한 오류 패턴 (일시적 네트워크/외부 서비스 오류)
+_RETRYABLE_ERROR_PATTERNS = (
+    "timeout",
+    "timed out",
+    "connection reset",
+    "connection refused",
+    "temporary failure",
+    "network is unreachable",
+    "name resolution",
+    "ssl",
+    "http error 429",
+    "http error 500",
+    "http error 502",
+    "http error 503",
+    "http error 504",
+    "unable to download",
+    "urlopen error",
+    "incompleteread",
+    "remotedisconnected",
+)
+
+
+def is_retryable_error(error: Exception) -> bool:
+    """오류가 재시도 가능한 일시적 오류인지 판별한다."""
+    error_msg = str(error).lower()
+    error_type = type(error).__name__.lower()
+    combined = f"{error_type}: {error_msg}"
+    return any(pattern in combined for pattern in _RETRYABLE_ERROR_PATTERNS)
 
 
 def _get_redis() -> redis.Redis:
@@ -180,18 +211,84 @@ def run_pipeline(
         )
 
     except Exception as e:
-        logger.error(
-            "pipeline_failed",
-            job_id=job_id,
-            exc_type=type(e).__name__,
-            exc_message=str(e),
-            exc_info=e,
-        )
-        job_store.update(job_id, status="failed", error=str(e))
-        _publish_progress(redis_conn, job_id, {"status": "failed", "error": str(e)})
+        _handle_pipeline_error(job_id, e, job_store, redis_conn)
     finally:
         job_store.close()
         redis_conn.close()
+
+
+def _handle_pipeline_error(
+    job_id: str,
+    error: Exception,
+    job_store: JobStore,
+    redis_conn: redis.Redis,
+) -> None:
+    """파이프라인 오류를 처리하고 재시도 가능 여부를 판단한다."""
+    job = job_store.get(job_id)
+    retry_count = job.get("retry_count", 0) or 0 if job else 0
+
+    if is_retryable_error(error) and retry_count < _settings.max_retries:
+        new_retry_count = retry_count + 1
+        delay = _settings.retry_base_delay * (
+            _settings.retry_backoff_multiplier ** (new_retry_count - 1)
+        )
+
+        logger.warning(
+            "pipeline_retrying",
+            job_id=job_id,
+            retry_count=new_retry_count,
+            max_retries=_settings.max_retries,
+            delay_s=delay,
+            exc_type=type(error).__name__,
+            exc_message=str(error),
+        )
+
+        job_store.update(
+            job_id,
+            status="retrying",
+            retry_count=new_retry_count,
+            error=f"재시도 {new_retry_count}/{_settings.max_retries}: {error}",
+        )
+        _publish_progress(
+            redis_conn,
+            job_id,
+            {
+                "status": "retrying",
+                "retry_count": new_retry_count,
+                "max_retries": _settings.max_retries,
+                "next_retry_delay": delay,
+                "error": str(error),
+            },
+        )
+
+        # 지수 백오프 대기 후 재시도 큐잉
+        q = Queue(
+            _settings.rq_queue_name,
+            connection=redis_conn,
+            default_timeout=_settings.rq_job_timeout,
+        )
+
+        # Job의 원래 파라미터를 DB에서 복원하여 재큐잉
+        if job:
+            q.enqueue_in(
+                time_delta=datetime.timedelta(seconds=delay),
+                f=run_pipeline,
+                job_id=job_id,
+                url=job["url"],
+                job_timeout=_settings.rq_job_timeout,
+            )
+    else:
+        logger.error(
+            "pipeline_failed",
+            job_id=job_id,
+            exc_type=type(error).__name__,
+            exc_message=str(error),
+            exc_info=error,
+            retry_count=retry_count,
+            retryable=is_retryable_error(error),
+        )
+        job_store.update(job_id, status="failed", error=str(error))
+        _publish_progress(redis_conn, job_id, {"status": "failed", "error": str(error)})
 
 
 def _validate_job_path(job_id: str, output_base_dir: Path) -> Path:

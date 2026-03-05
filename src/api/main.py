@@ -67,7 +67,7 @@ async def _lifespan(application: FastAPI) -> AsyncIterator[None]:
 
     # 서버 재시작 시 미완료 Job을 failed로 전환
     recovered = _job_store.fail_stale_jobs(
-        statuses=["pending", "processing"],
+        statuses=["pending", "processing", "retrying"],
         error="서버 재시작으로 인해 작업이 중단되었습니다. 재제출해 주세요.",
     )
     if recovered:
@@ -121,7 +121,7 @@ def _update_job_gauges() -> None:
     """Scrape 시점에 활성 Job 수와 큐 길이를 갱신한다."""
     try:
         active = 0
-        for s in ("pending", "processing"):
+        for s in ("pending", "processing", "retrying"):
             active += _job_store.list(status=s, limit=0)["total"]
         ACTIVE_JOBS_GAUGE.set(active)
     except Exception as e:
@@ -169,6 +169,7 @@ class JobStatus(StrEnum):
     processing = "processing"
     completed = "completed"
     failed = "failed"
+    retrying = "retrying"
 
 
 class JobCreate(BaseModel):
@@ -194,6 +195,7 @@ class JobResponse(BaseModel):
     error: str | None = None
     result: dict[str, Any] | None = None
     gs_splat_url: str | None = None
+    retry_count: int = 0
 
 
 # Job 저장소 (SQLite)
@@ -293,6 +295,7 @@ def _build_response(job: dict[str, Any]) -> JobResponse:
         error=job.get("error"),
         result=job.get("result"),
         gs_splat_url=gs_splat_url,
+        retry_count=job.get("retry_count") or 0,
     )
 
 
@@ -310,7 +313,7 @@ def create_job(
         )
 
     # 사용자별 동시 실행 제한 확인
-    active_statuses = [JobStatus.pending, JobStatus.processing]
+    active_statuses = [JobStatus.pending, JobStatus.processing, JobStatus.retrying]
     active_count = 0
     for s in active_statuses:
         result = _job_store.list(status=s.value, user_id=current_user["id"], limit=0)
@@ -388,7 +391,7 @@ def delete_job(
     """작업을 삭제하고 관련 파일을 정리한다."""
     job = _get_user_job(job_id, current_user)
 
-    if job["status"] == JobStatus.processing:
+    if job["status"] in (JobStatus.processing, JobStatus.retrying):
         raise HTTPException(
             status_code=409,
             detail="처리 중인 작업은 삭제할 수 없습니다",
@@ -403,6 +406,30 @@ def delete_job(
         pass  # 잘못된 job_id 형식이면 디스크 정리 건너뜀
 
     _job_store.delete(job_id)
+
+
+@app.post("/api/jobs/{job_id}/retry", response_model=JobResponse)
+def retry_job(
+    job_id: str,
+    current_user: dict = Depends(get_current_user),
+) -> JobResponse:
+    """실패한 작업을 수동으로 재시도한다."""
+    job = _get_user_job(job_id, current_user)
+
+    if job["status"] != JobStatus.failed:
+        raise HTTPException(
+            status_code=409,
+            detail="실패한 작업만 재시도할 수 있습니다",
+        )
+
+    # 재시도 카운트 초기화 및 상태 리셋
+    _job_store.update(job_id, status="pending", error=None, retry_count=0)
+
+    body = JobCreate(url=job["url"])
+    _enqueue_job(job_id, body)
+
+    updated_job = _job_store.get(job_id)
+    return _build_response(updated_job)
 
 
 @app.get("/api/jobs/{job_id}/stream")
