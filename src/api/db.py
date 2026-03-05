@@ -126,6 +126,11 @@ class JobStore:
             self._conn.commit()
         return count
 
+    def ping(self) -> bool:
+        """DB 연결 상태를 확인한다."""
+        self._conn.execute("SELECT 1")
+        return True
+
     def close(self) -> None:
         self._conn.close()
 

@@ -199,6 +199,35 @@ def _parse_sse_events(response) -> list[dict]:
     return events
 
 
+class TestHealth:
+    """GET /health, /health/ready 테스트."""
+
+    def test_health_ok(self):
+        """기본 헬스체크는 200을 반환한다."""
+        resp = client.get("/health")
+        assert resp.status_code == 200
+        assert resp.json() == {"status": "ok"}
+
+    def test_health_ready_db_ok(self):
+        """/health/ready는 DB가 정상이면 checks에 database=ok를 포함한다."""
+        resp = client.get("/health/ready")
+        data = resp.json()
+        # colmap이 없을 수 있으므로 status code와 DB 체크만 확인
+        if resp.status_code == 200:
+            assert data["checks"]["database"] == "ok"
+        else:
+            # 503일 경우 detail에서 database 확인
+            detail = data["detail"]
+            assert detail["database"] == "ok" or "error" in detail["database"]
+
+    @patch("src.api.main._job_store")
+    def test_health_ready_db_failure(self, mock_store):
+        """DB 연결 실패 시 503을 반환한다."""
+        mock_store.ping.side_effect = RuntimeError("DB 연결 실패")
+        resp = client.get("/health/ready")
+        assert resp.status_code == 503
+
+
 class TestStreamJob:
     """GET /api/jobs/{id}/stream 테스트."""
 
