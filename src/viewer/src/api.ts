@@ -1,3 +1,5 @@
+import { authFetch } from './auth'
+
 const API_BASE = '/api'
 
 export interface JobResult {
@@ -21,7 +23,7 @@ export interface Job {
 }
 
 export async function createJob(url: string): Promise<Job> {
-  const res = await fetch(`${API_BASE}/jobs`, {
+  const res = await authFetch(`${API_BASE}/jobs`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ url }),
@@ -34,7 +36,7 @@ export async function createJob(url: string): Promise<Job> {
 }
 
 export async function getJob(jobId: string): Promise<Job> {
-  const res = await fetch(`${API_BASE}/jobs/${jobId}`)
+  const res = await authFetch(`${API_BASE}/jobs/${jobId}`)
   if (!res.ok) {
     throw new Error(`작업 조회 실패: ${res.status}`)
   }
@@ -55,7 +57,7 @@ export async function getJobs(
   if (status) params.set('status', status)
   params.set('limit', String(limit))
   params.set('offset', String(offset))
-  const res = await fetch(`${API_BASE}/jobs?${params}`)
+  const res = await authFetch(`${API_BASE}/jobs?${params}`)
   if (!res.ok) {
     throw new Error(`Job 목록 조회 실패: ${res.status}`)
   }
