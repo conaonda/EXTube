@@ -29,7 +29,11 @@ from src.api.auth import get_current_user, set_job_store
 from src.api.auth import router as auth_router
 from src.api.config import get_settings
 from src.api.db import JobStore
-from src.api.middleware import RequestLoggingMiddleware, register_exception_handlers
+from src.api.middleware import (
+    RequestLoggingMiddleware,
+    SecurityHeadersMiddleware,
+    register_exception_handlers,
+)
 from src.api.rate_limit import RateLimitMiddleware, RateLimitRule
 from src.api.tasks import run_pipeline
 from src.api.ws import (
@@ -86,13 +90,17 @@ app = FastAPI(title="EXTube API", version="0.5.0", lifespan=_lifespan)
 # 인증 라우터
 app.include_router(auth_router)
 
+# 보안 헤더 미들웨어
+app.add_middleware(SecurityHeadersMiddleware, environment=_settings.environment)
+
 # CORS 설정
 app.add_middleware(
     CORSMiddleware,
     allow_origins=_settings.cors_origin_list,
     allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+    allow_headers=["Authorization", "Content-Type"],
+    expose_headers=["X-Request-ID"],
 )
 
 # Rate limiting
