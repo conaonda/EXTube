@@ -2,6 +2,55 @@ import { authFetch, getAccessToken } from './auth'
 
 const API_BASE = '/api'
 
+export type ApiErrorKind = 'network' | 'auth' | 'rate_limit' | 'server' | 'client'
+
+export class ApiError extends Error {
+  kind: ApiErrorKind
+  status: number | null
+  retryable: boolean
+
+  constructor(message: string, kind: ApiErrorKind, status: number | null = null) {
+    super(message)
+    this.name = 'ApiError'
+    this.kind = kind
+    this.status = status
+    this.retryable = kind === 'network' || kind === 'rate_limit' || kind === 'server'
+  }
+}
+
+function classifyError(status: number): ApiErrorKind {
+  if (status === 401 || status === 403) return 'auth'
+  if (status === 429) return 'rate_limit'
+  if (status >= 500) return 'server'
+  return 'client'
+}
+
+async function handleResponse<T>(res: Response, fallbackMsg: string): Promise<T> {
+  if (res.ok) return res.json()
+  const detail = await res.json().catch(() => null)
+  const kind = classifyError(res.status)
+  const messages: Record<ApiErrorKind, string> = {
+    network: '네트워크 연결을 확인해 주세요',
+    auth: '인증이 만료되었습니다. 다시 로그인해 주세요',
+    rate_limit: '요청이 너무 많습니다. 잠시 후 다시 시도해 주세요',
+    server: '서버 오류가 발생했습니다. 잠시 후 다시 시도해 주세요',
+    client: detail?.detail ?? `${fallbackMsg}: ${res.status}`,
+  }
+  throw new ApiError(
+    kind === 'client' ? messages.client : messages[kind],
+    kind,
+    res.status,
+  )
+}
+
+function wrapNetworkError(err: unknown): never {
+  if (err instanceof ApiError) throw err
+  throw new ApiError(
+    '네트워크 연결을 확인해 주세요',
+    'network',
+  )
+}
+
 export interface JobResult {
   video_title: string
   total_frames: number
@@ -23,24 +72,25 @@ export interface Job {
 }
 
 export async function createJob(url: string): Promise<Job> {
-  const res = await authFetch(`${API_BASE}/jobs`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ url }),
-  })
-  if (!res.ok) {
-    const detail = await res.json().catch(() => null)
-    throw new Error(detail?.detail ?? `요청 실패: ${res.status}`)
+  try {
+    const res = await authFetch(`${API_BASE}/jobs`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ url }),
+    })
+    return handleResponse<Job>(res, '작업 생성 실패')
+  } catch (err) {
+    throw wrapNetworkError(err)
   }
-  return res.json()
 }
 
 export async function getJob(jobId: string): Promise<Job> {
-  const res = await authFetch(`${API_BASE}/jobs/${jobId}`)
-  if (!res.ok) {
-    throw new Error(`작업 조회 실패: ${res.status}`)
+  try {
+    const res = await authFetch(`${API_BASE}/jobs/${jobId}`)
+    return handleResponse<Job>(res, '작업 조회 실패')
+  } catch (err) {
+    throw wrapNetworkError(err)
   }
-  return res.json()
 }
 
 export interface JobListResponse {
@@ -57,11 +107,12 @@ export async function getJobs(
   if (status) params.set('status', status)
   params.set('limit', String(limit))
   params.set('offset', String(offset))
-  const res = await authFetch(`${API_BASE}/jobs?${params}`)
-  if (!res.ok) {
-    throw new Error(`Job 목록 조회 실패: ${res.status}`)
+  try {
+    const res = await authFetch(`${API_BASE}/jobs?${params}`)
+    return handleResponse<JobListResponse>(res, 'Job 목록 조회 실패')
+  } catch (err) {
+    throw wrapNetworkError(err)
   }
-  return res.json()
 }
 
 function appendToken(url: string): string {

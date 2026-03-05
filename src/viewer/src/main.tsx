@@ -7,21 +7,24 @@ import JobHistory from './components/JobHistory.tsx'
 import LoginPage from './components/LoginPage.tsx'
 import ProtectedRoute from './components/ProtectedRoute.tsx'
 import { AuthProvider } from './contexts/AuthContext.tsx'
+import { ToastProvider } from './components/Toast.tsx'
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
     <BrowserRouter>
       <AuthProvider>
-        <Routes>
-          <Route element={<Layout />}>
-            <Route path="/login" element={<LoginPage />} />
-            <Route element={<ProtectedRoute />}>
-              <Route path="/" element={<App />} />
-              <Route path="/jobs" element={<JobHistory />} />
-              <Route path="/jobs/:jobId" element={<App />} />
+        <ToastProvider>
+          <Routes>
+            <Route element={<Layout />}>
+              <Route path="/login" element={<LoginPage />} />
+              <Route element={<ProtectedRoute />}>
+                <Route path="/" element={<App />} />
+                <Route path="/jobs" element={<JobHistory />} />
+                <Route path="/jobs/:jobId" element={<App />} />
+              </Route>
             </Route>
-          </Route>
-        </Routes>
+          </Routes>
+        </ToastProvider>
       </AuthProvider>
     </BrowserRouter>
   </StrictMode>,
