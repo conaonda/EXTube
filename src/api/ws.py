@@ -9,7 +9,9 @@ from collections import defaultdict
 from typing import Any
 
 from fastapi import WebSocket, WebSocketDisconnect
+from jose import JWTError, jwt
 
+from src.api.config import get_settings
 from src.api.db import JobStore
 from src.api.logging_config import get_logger
 
@@ -24,7 +26,6 @@ class JobProgressManager:
         self._lock = asyncio.Lock()
 
     async def connect(self, job_id: str, websocket: WebSocket) -> None:
-        await websocket.accept()
         async with self._lock:
             self._connections[job_id].append(websocket)
         count = len(self._connections[job_id])
@@ -137,13 +138,70 @@ def stop_redis_subscriber() -> None:
     _subscriber_stop.clear()
 
 
+def _authenticate_ws_token(token: str | None) -> dict | None:
+    """WebSocket용 JWT 토큰을 검증하고 사용자 정보를 반환한다. 실패 시 None."""
+    if not token:
+        return None
+    settings = get_settings()
+    try:
+        payload = jwt.decode(
+            token, settings.jwt_secret_key, algorithms=[settings.jwt_algorithm]
+        )
+        user_id = payload.get("sub")
+        if user_id is None or payload.get("type") != "access":
+            return None
+        return {"id": user_id, "username": payload.get("username")}
+    except JWTError:
+        return None
+
+
+_WS_AUTH_TIMEOUT_SECONDS = 5
+
+
 async def websocket_job_handler(
     websocket: WebSocket, job_id: str, job_store: JobStore
 ) -> None:
-    """WebSocket 엔드포인트 핸들러."""
+    """WebSocket 엔드포인트 핸들러.
+
+    인증은 첫 번째 메시지로 JWT 토큰을 전달받아 처리한다.
+    연결 후 일정 시간 내 인증 메시지가 없으면 연결을 종료한다.
+    """
+    await websocket.accept()
+
+    # 첫 번째 메시지로 인증 토큰 수신
+    try:
+        auth_message = await asyncio.wait_for(
+            websocket.receive_text(),
+            timeout=_WS_AUTH_TIMEOUT_SECONDS,
+        )
+    except asyncio.TimeoutError:
+        await websocket.close(code=4001, reason="인증 타임아웃")
+        return
+    except WebSocketDisconnect:
+        return
+
+    # 토큰 파싱: 순수 토큰 문자열 또는 JSON {"token": "..."} 지원
+    token: str | None = None
+    try:
+        parsed = json.loads(auth_message)
+        if isinstance(parsed, dict):
+            token = parsed.get("token")
+    except (json.JSONDecodeError, TypeError):
+        token = auth_message.strip()
+
+    user = _authenticate_ws_token(token)
+    if user is None:
+        await websocket.close(code=4001, reason="인증이 필요합니다")
+        return
+
     job = job_store.get(job_id)
     if job is None:
         await websocket.close(code=4004, reason="작업을 찾을 수 없습니다")
+        return
+
+    # 소유권 검증
+    if job.get("user_id") and job["user_id"] != user["id"]:
+        await websocket.close(code=4003, reason="접근 권한이 없습니다")
         return
 
     await progress_manager.connect(job_id, websocket)
@@ -161,7 +219,6 @@ async def websocket_job_handler(
 
     try:
         while True:
-            # 클라이언트로부터 메시지를 대기 (ping/pong 또는 종료 감지)
             await websocket.receive_text()
     except WebSocketDisconnect:
         pass

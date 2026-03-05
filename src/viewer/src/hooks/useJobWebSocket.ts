@@ -15,12 +15,14 @@ export interface WsJobMessage {
 
 interface UseJobWebSocketOptions {
   jobId: string | null
+  token: string | null
   onMessage: (msg: WsJobMessage) => void
   reconnectInterval?: number
 }
 
 export function useJobWebSocket({
   jobId,
+  token,
   onMessage,
   reconnectInterval = 3000,
 }: UseJobWebSocketOptions) {
@@ -44,7 +46,7 @@ export function useJobWebSocket({
   }, [])
 
   useEffect(() => {
-    if (!jobId) return
+    if (!jobId || !token) return
 
     let stopped = false
 
@@ -54,6 +56,11 @@ export function useJobWebSocket({
       const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
       const ws = new WebSocket(`${protocol}//${window.location.host}/ws/jobs/${jobId}`)
       wsRef.current = ws
+
+      ws.onopen = () => {
+        // 연결 직후 첫 번째 메시지로 인증 토큰 전송
+        ws.send(JSON.stringify({ token }))
+      }
 
       ws.onmessage = (event) => {
         try {
@@ -84,7 +91,7 @@ export function useJobWebSocket({
       stopped = true
       cleanup()
     }
-  }, [jobId, reconnectInterval, cleanup])
+  }, [jobId, token, reconnectInterval, cleanup])
 
   return { close: cleanup }
 }
