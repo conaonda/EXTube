@@ -319,7 +319,45 @@ docker compose -f docker-compose.yml -f docker-compose.prod.yml --profile gpu up
 
 ---
 
-## 8. 권장 사항 요약
+## 8. 배포 전 체크리스트
+
+프로덕션 첫 배포 전에 아래 항목을 모두 확인하세요.
+
+### 필수 항목
+
+- [ ] `.env` 파일 생성 (`cp .env.example .env`)
+- [ ] `EXTUBE_JWT_SECRET_KEY`를 강력한 랜덤 값으로 변경
+- [ ] `EXTUBE_ENVIRONMENT=production` 설정
+- [ ] `EXTUBE_CORS_ORIGINS`에 실제 프론트엔드 도메인 설정
+- [ ] `REDIS_PASSWORD` 설정 (docker/.env)
+- [ ] `DOMAIN` 설정 (docker/.env)
+- [ ] SSL 인증서 발급 완료
+
+### 보안 항목
+
+- [ ] `.env` 파일이 `.gitignore`에 포함되어 있는지 확인
+- [ ] JWT secret key가 기본값(`change-me-in-production`)이 아닌지 확인
+- [ ] Redis 비밀번호가 설정되어 있는지 확인
+- [ ] API 문서(`/docs`, `/redoc`)가 production에서 비활성화되는지 확인
+
+### 인프라 항목
+
+- [ ] Docker 및 Docker Compose 설치 확인
+- [ ] NVIDIA Container Toolkit 설치 (GPU 사용 시)
+- [ ] 디스크 공간 확인 (Job 결과물 저장용)
+- [ ] 방화벽 설정 (80, 443 포트 개방)
+- [ ] Redis 데이터 볼륨 백업 경로 설정
+
+### 실행 확인
+
+- [ ] `scripts/deploy.sh` 실행
+- [ ] `GET /health` 응답 200 확인
+- [ ] `GET /health/ready` 응답 200 확인
+- [ ] 로그에 에러 없는지 확인 (`docker compose logs -f`)
+
+---
+
+## 9. 권장 사항 요약
 
 ### 단기 (즉시 적용)
 1. `docker-compose.prod.yml` 생성 — 볼륨 마운트 제거, 재시작 정책 설정
