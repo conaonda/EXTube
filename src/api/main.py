@@ -325,6 +325,30 @@ def get_job(job_id: str) -> JobResponse:
     )
 
 
+@app.delete("/api/jobs/{job_id}", status_code=204)
+def delete_job(job_id: str) -> None:
+    """작업을 삭제하고 관련 파일을 정리한다."""
+    job = _job_store.get(job_id)
+    if job is None:
+        raise HTTPException(status_code=404, detail="작업을 찾을 수 없습니다")
+
+    if job["status"] == JobStatus.processing:
+        raise HTTPException(
+            status_code=409,
+            detail="처리 중인 작업은 삭제할 수 없습니다",
+        )
+
+    # 디스크 파일 정리
+    try:
+        job_dir = _validate_job_path(job_id)
+        if job_dir.is_dir():
+            shutil.rmtree(job_dir)
+    except ValueError:
+        pass  # 잘못된 job_id 형식이면 디스크 정리 건너뜀
+
+    _job_store.delete(job_id)
+
+
 @app.get("/api/jobs/{job_id}/stream")
 async def stream_job(job_id: str) -> StreamingResponse:
     """SSE로 작업 진행률을 실시간 스트리밍한다."""
