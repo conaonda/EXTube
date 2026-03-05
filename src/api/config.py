@@ -29,6 +29,12 @@ class Settings(BaseSettings):
     output_base_dir: Path = Path("data/jobs")
     db_path: Path = Path("data/jobs.db")
 
+    # 스토리지 정리 정책
+    intermediate_ttl_seconds: int = 7 * 24 * 60 * 60  # 중간 파일 7일
+    result_ttl_seconds: int = 30 * 24 * 60 * 60  # 최종 결과물 30일
+    cleanup_interval_seconds: int = 6 * 60 * 60  # 정리 주기 6시간
+    cleanup_grace_period_seconds: int = 24 * 60 * 60  # 삭제 전 유예 24시간
+
     # 재시도 설정
     max_retries: int = 3
     retry_base_delay: int = 10  # 초 (지수 백오프: 10s, 30s, 90s)
