@@ -32,6 +32,58 @@ jobs:
       - name: Test
         run: make test
 
+  docker-build:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        dockerfile: [docker/Dockerfile]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build Docker image
+        run: docker build -f ${{ matrix.dockerfile }} -t extube-ci:${{ github.sha }} .
+
+  integration-test:
+    runs-on: ubuntu-latest
+    needs: [docker-build]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Start services
+        run: docker compose -f docker/docker-compose.yml up -d redis app
+        env:
+          COMPOSE_PROJECT_NAME: extube-ci
+
+      - name: Wait for app health check
+        run: |
+          for i in $(seq 1 30); do
+            if docker compose -f docker/docker-compose.yml ps app --format json | grep -q '"healthy"'; then
+              echo "App is healthy"
+              exit 0
+            fi
+            echo "Waiting for app to be healthy... ($i/30)"
+            sleep 5
+          done
+          echo "App failed to become healthy"
+          docker compose -f docker/docker-compose.yml logs app
+          exit 1
+        env:
+          COMPOSE_PROJECT_NAME: extube-ci
+
+      - name: Test health endpoint
+        run: |
+          curl -sf http://localhost:8000/health | grep -q '"status"'
+
+      - name: Test ready endpoint (Redis connection)
+        run: |
+          curl -sf http://localhost:8000/health/ready | grep -q '"status"'
+
+      - name: Cleanup
+        if: always()
+        run: docker compose -f docker/docker-compose.yml down -v
+        env:
+          COMPOSE_PROJECT_NAME: extube-ci
+
   frontend:
     runs-on: ubuntu-latest
     steps:
