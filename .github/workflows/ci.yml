@@ -37,11 +37,8 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Build Docker image
-        run: docker build -f docker/Dockerfile -t extube-ci:${{ github.sha }} .
-
-      - name: Start services
-        run: docker compose -f docker/docker-compose.yml up -d redis app
+      - name: Build and start services
+        run: docker compose -f docker/docker-compose.yml up -d --build redis app
         env:
           COMPOSE_PROJECT_NAME: extube-ci
 
