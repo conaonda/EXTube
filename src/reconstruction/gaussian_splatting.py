@@ -10,6 +10,7 @@ import json
 import logging
 import shutil
 import subprocess
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -36,6 +37,10 @@ _VRAM_PRESETS: dict[str, dict] = {
         "pipeline.model.cull_alpha_thresh": 0.005,
     },
 }
+
+_TIMEOUT_SENTINEL = object()
+
+_OOM_PATTERNS = ("CUDA out of memory", "OutOfMemoryError")
 
 
 @dataclass
@@ -74,6 +79,40 @@ def detect_vram_gb() -> float:
     except (subprocess.TimeoutExpired, OSError, ValueError):
         pass
     return 0.0
+
+
+def detect_vram_free_gb() -> float:
+    """현재 사용 가능한 GPU VRAM(GB)을 감지한다."""
+    try:
+        result = subprocess.run(
+            [
+                "nvidia-smi",
+                "--query-gpu=memory.free",
+                "--format=csv,noheader,nounits",
+            ],
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=10,
+        )
+        if result.returncode == 0 and result.stdout.strip():
+            mib = float(result.stdout.strip().split("\n")[0])
+            return mib / 1024.0
+    except (subprocess.TimeoutExpired, OSError, ValueError):
+        pass
+    return 0.0
+
+
+def compute_dynamic_timeout(vram_gb: float, num_iterations: int) -> int:
+    """VRAM과 iteration 수 기반으로 동적 타임아웃을 계산한다."""
+    base = 1800
+    if vram_gb <= 8:
+        per_iter = 0.5
+    elif vram_gb < 20:
+        per_iter = 0.3
+    else:
+        per_iter = 0.2
+    return min(base + int(num_iterations * per_iter), 14400)
 
 
 def select_vram_preset(vram_gb: float) -> str:
@@ -149,13 +188,19 @@ def convert_colmap_to_nerfstudio(
     return output_dir
 
 
+def _is_oom_error(stderr: str) -> bool:
+    """stderr에 OOM 관련 에러 패턴이 있는지 확인한다."""
+    return any(pattern in stderr for pattern in _OOM_PATTERNS)
+
+
 def train_gaussian_splatting(
     data_dir: Path,
     output_dir: Path,
     *,
     vram_preset: str | None = None,
     max_iterations: int | None = None,
-    timeout: int = 7200,
+    timeout: int | None = None,
+    on_oom_callback: Callable[[str], None] | None = None,
 ) -> GaussianSplattingResult:
     """splatfacto 모델을 학습한다.
 
@@ -164,7 +209,8 @@ def train_gaussian_splatting(
         output_dir: 학습 출력 디렉토리
         vram_preset: VRAM 프리셋 ("low", "medium", "high"). None이면 자동 감지.
         max_iterations: 최대 학습 반복 횟수. None이면 프리셋 기본값 사용.
-        timeout: 학습 타임아웃 (초, 기본 7200)
+        timeout: 학습 타임아웃 (초). None이면 동적 계산.
+        on_oom_callback: OOM 발생 시 호출되는 콜백. 메시지 문자열을 인자로 받는다.
 
     Returns:
         GaussianSplattingResult: 학습 결과
@@ -181,38 +227,78 @@ def train_gaussian_splatting(
         vram_gb = detect_vram_gb()
         vram_preset = select_vram_preset(vram_gb)
         logger.info("GPU VRAM: %.1f GB → 프리셋: %s", vram_gb, vram_preset)
+    else:
+        vram_gb = detect_vram_gb()
 
     preset = _VRAM_PRESETS.get(vram_preset, _VRAM_PRESETS["medium"])
     iterations = (
         max_iterations if max_iterations is not None else preset["max_num_iterations"]
     )
 
+    # 동적 타임아웃 계산
+    if timeout is None:
+        timeout = compute_dynamic_timeout(vram_gb, iterations)
+        logger.info("동적 타임아웃: %d초 (VRAM=%.1fGB, iters=%d)", timeout, vram_gb, iterations)
+
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    cmd = [
-        "ns-train",
-        "splatfacto",
-        "--data",
-        str(data_dir),
-        "--output-dir",
-        str(output_dir),
-        "--max-num-iterations",
-        str(iterations),
-        "--steps-per-eval-image",
-        str(preset["steps_per_eval_image"]),
-        f"--pipeline.model.num-downscales={preset['pipeline.model.num_downscales']}",
-        f"--pipeline.model.cull-alpha-thresh={preset['pipeline.model.cull_alpha_thresh']}",
-    ]
+    def _build_cmd(iters: int) -> list[str]:
+        return [
+            "ns-train",
+            "splatfacto",
+            "--data",
+            str(data_dir),
+            "--output-dir",
+            str(output_dir),
+            "--max-num-iterations",
+            str(iters),
+            "--steps-per-eval-image",
+            str(preset["steps_per_eval_image"]),
+            f"--pipeline.model.num-downscales={preset['pipeline.model.num_downscales']}",
+            f"--pipeline.model.cull-alpha-thresh={preset['pipeline.model.cull_alpha_thresh']}",
+        ]
 
     logger.info("3DGS 학습 시작: %d iterations, 프리셋=%s", iterations, vram_preset)
     result = subprocess.run(
-        cmd,
+        _build_cmd(iterations),
         capture_output=True,
         text=True,
         check=False,
         timeout=timeout,
     )
-    if result.returncode != 0:
+
+    if result.returncode != 0 and _is_oom_error(result.stderr):
+        # OOM 감지: iteration 50% 감소 후 재시도
+        reduced_iterations = iterations // 2
+        oom_msg = (
+            f"OOM 감지: iteration {iterations} → {reduced_iterations}로 감소 후 재시도"
+        )
+        logger.warning(oom_msg)
+        if on_oom_callback is not None:
+            on_oom_callback(oom_msg)
+
+        result = subprocess.run(
+            _build_cmd(reduced_iterations),
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=timeout,
+        )
+
+        if result.returncode != 0 and _is_oom_error(result.stderr):
+            raise RuntimeError(
+                f"GPU VRAM이 부족합니다. "
+                f"{reduced_iterations} iterations에서도 OOM이 발생했습니다. "
+                f"더 낮은 해상도나 적은 iteration을 사용하세요."
+            )
+
+        if result.returncode != 0:
+            raise RuntimeError(
+                f"3DGS 학습 실패 (code {result.returncode}): {result.stderr}"
+            )
+
+        iterations = reduced_iterations
+    elif result.returncode != 0:
         raise RuntimeError(
             f"3DGS 학습 실패 (code {result.returncode}): {result.stderr}"
         )

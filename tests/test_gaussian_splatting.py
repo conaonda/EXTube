@@ -5,7 +5,9 @@ from unittest.mock import MagicMock, patch
 import pytest
 from src.reconstruction.gaussian_splatting import (
     GaussianSplattingResult,
+    compute_dynamic_timeout,
     convert_colmap_to_nerfstudio,
+    detect_vram_free_gb,
     detect_vram_gb,
     run_gaussian_splatting,
     select_vram_preset,
@@ -303,3 +305,121 @@ class TestReconstructWithGaussianSplatting:
         assert "gaussian_splatting" in result.steps_completed
         assert result.gs_num_iterations == 1000
         assert result.gs_ply_path is not None
+
+
+class TestDetectVramFreeGb:
+    """GPU 가용 VRAM 감지 테스트."""
+
+    @patch("src.reconstruction.gaussian_splatting.subprocess.run")
+    def test_success(self, mock_run):
+        mock_run.return_value = MagicMock(returncode=0, stdout="8192\n")
+        result = detect_vram_free_gb()
+        assert result == pytest.approx(8.0, rel=0.01)
+
+    @patch("src.reconstruction.gaussian_splatting.subprocess.run")
+    def test_failure(self, mock_run):
+        mock_run.return_value = MagicMock(returncode=1, stdout="")
+        assert detect_vram_free_gb() == 0.0
+
+
+class TestComputeDynamicTimeout:
+    """동적 타임아웃 계산 테스트."""
+
+    def test_low_vram(self):
+        # 6GB, 7000 iters → 1800 + 7000*0.5 = 5300
+        assert compute_dynamic_timeout(6.0, 7000) == 5300
+
+    def test_high_vram(self):
+        # 24GB, 30000 iters → 1800 + 30000*0.2 = 7800
+        assert compute_dynamic_timeout(24.0, 30000) == 7800
+
+    def test_cap_at_max(self):
+        # Very high iterations should cap at 14400
+        assert compute_dynamic_timeout(6.0, 100000) == 14400
+
+
+class TestOomDetection:
+    """OOM 감지 및 재시도 테스트."""
+
+    @patch("src.reconstruction.gaussian_splatting.detect_vram_gb")
+    @patch("src.reconstruction.gaussian_splatting.subprocess.run")
+    def test_oom_retry_succeeds(self, mock_run, mock_vram, tmp_path):
+        """첫 시도 OOM, 재시도 성공 시 iteration이 절반으로 줄어든다."""
+        data_dir = tmp_path / "data"
+        data_dir.mkdir()
+        output_dir = tmp_path / "output"
+
+        mock_vram.return_value = 8.0
+
+        call_count = 0
+
+        def side_effect(cmd, **kwargs):
+            nonlocal call_count
+            call_count += 1
+            if call_count == 1:
+                return MagicMock(
+                    returncode=1, stdout="", stderr="CUDA out of memory"
+                )
+            output_dir.mkdir(parents=True, exist_ok=True)
+            return MagicMock(returncode=0, stdout="", stderr="")
+
+        mock_run.side_effect = side_effect
+
+        result = train_gaussian_splatting(
+            data_dir, output_dir, vram_preset="low", max_iterations=7000
+        )
+
+        assert result.num_iterations == 3500
+
+    @patch("src.reconstruction.gaussian_splatting.detect_vram_gb")
+    @patch("src.reconstruction.gaussian_splatting.subprocess.run")
+    def test_oom_retry_fails(self, mock_run, mock_vram, tmp_path):
+        """두 번 모두 OOM이면 RuntimeError를 발생시킨다."""
+        data_dir = tmp_path / "data"
+        data_dir.mkdir()
+
+        mock_vram.return_value = 8.0
+        mock_run.return_value = MagicMock(
+            returncode=1, stdout="", stderr="CUDA out of memory"
+        )
+
+        with pytest.raises(RuntimeError, match="VRAM이 부족"):
+            train_gaussian_splatting(
+                data_dir, tmp_path / "output", vram_preset="low", max_iterations=7000
+            )
+
+    @patch("src.reconstruction.gaussian_splatting.detect_vram_gb")
+    @patch("src.reconstruction.gaussian_splatting.subprocess.run")
+    def test_oom_callback_called(self, mock_run, mock_vram, tmp_path):
+        """OOM 발생 시 on_oom_callback이 호출된다."""
+        data_dir = tmp_path / "data"
+        data_dir.mkdir()
+        output_dir = tmp_path / "output"
+
+        mock_vram.return_value = 8.0
+        callback = MagicMock()
+
+        call_count = 0
+
+        def side_effect(cmd, **kwargs):
+            nonlocal call_count
+            call_count += 1
+            if call_count == 1:
+                return MagicMock(
+                    returncode=1, stdout="", stderr="OutOfMemoryError"
+                )
+            output_dir.mkdir(parents=True, exist_ok=True)
+            return MagicMock(returncode=0, stdout="", stderr="")
+
+        mock_run.side_effect = side_effect
+
+        train_gaussian_splatting(
+            data_dir,
+            output_dir,
+            vram_preset="low",
+            max_iterations=7000,
+            on_oom_callback=callback,
+        )
+
+        callback.assert_called_once()
+        assert "OOM" in callback.call_args[0][0]

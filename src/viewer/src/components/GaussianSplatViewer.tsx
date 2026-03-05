@@ -32,6 +32,8 @@ export default function GaussianSplatViewer({
         pointCount: numSplats,
         defaultPointSize: 0.02,
       })
+    }).catch((err: unknown) => {
+      console.error('[GaussianSplatViewer] Load failed:', err)
     })
 
     return () => {
