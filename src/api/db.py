@@ -205,7 +205,7 @@ class JobStore:
     ) -> dict[str, Any]:
         job = {
             "id": job_id,
-            "status": status,
+            "status": str(status),
             "url": url,
             "error": None,
             "result": None,
@@ -229,7 +229,8 @@ class JobStore:
         with self._lock:
             self._conn.execute(sql, job)
             self._conn.commit()
-        return self._row_to_dict(job)
+        job.pop("created_at", None)
+        return job
 
     def list(
         self,
@@ -307,7 +308,7 @@ class JobStore:
         placeholders = ", ".join("?" for _ in active_statuses)
         with self._lock:
             row = self._conn.execute(
-                f"SELECT COUNT(*) FROM jobs"  # noqa: S608
+                "SELECT COUNT(*) FROM jobs"  # noqa: S608
                 f" WHERE user_id = ? AND status IN ({placeholders})",
                 [user_id, *active_statuses],
             ).fetchone()
@@ -316,7 +317,7 @@ class JobStore:
                 return None
             job = {
                 "id": job_id,
-                "status": status,
+                "status": str(status),
                 "url": url,
                 "error": None,
                 "result": None,
@@ -339,7 +340,8 @@ class JobStore:
             )
             self._conn.execute(sql, job)
             self._conn.commit()
-        return self._row_to_dict(job)
+        job.pop("created_at", None)
+        return job
 
     def delete(self, job_id: str) -> bool:
         """Job 레코드를 삭제한다. 삭제 성공 시 True를 반환한다."""
