@@ -8,18 +8,51 @@ from unittest.mock import patch
 import pytest
 from fastapi.testclient import TestClient
 from src.api.main import JobStatus, _job_store, app
+from src.api.rate_limit import RateLimitMiddleware
 
 client = TestClient(app)
+
+_TEST_USER_ID = "test_user_id1"
+_TEST_USERNAME = "apitestuser"
+_TEST_PASSWORD = "testpass123"
+
+
+def _reset_rate_limiter():
+    stack = app.middleware_stack
+    while stack is not None:
+        if isinstance(stack, RateLimitMiddleware):
+            stack.reset()
+            return
+        stack = getattr(stack, "app", None)
 
 
 @pytest.fixture(autouse=True)
 def _clear_jobs():
     """각 테스트 전후로 작업 저장소를 초기화한다."""
+    _reset_rate_limiter()
     _job_store._conn.execute("DELETE FROM jobs")
+    _job_store._conn.execute("DELETE FROM users")
+    _job_store._conn.execute("DELETE FROM refresh_tokens")
     _job_store._conn.commit()
+    from passlib.context import CryptContext
+
+    pwd = CryptContext(schemes=["bcrypt"], deprecated="auto")
+    _job_store.users.create(_TEST_USER_ID, _TEST_USERNAME, pwd.hash(_TEST_PASSWORD))
     yield
     _job_store._conn.execute("DELETE FROM jobs")
+    _job_store._conn.execute("DELETE FROM users")
+    _job_store._conn.execute("DELETE FROM refresh_tokens")
     _job_store._conn.commit()
+
+
+def _get_auth_headers() -> dict[str, str]:
+    """테스트용 인증 헤더를 반환한다."""
+    resp = client.post(
+        "/auth/login",
+        data={"username": _TEST_USERNAME, "password": _TEST_PASSWORD},
+    )
+    token = resp.json()["access_token"]
+    return {"Authorization": f"Bearer {token}"}
 
 
 def _insert_job(job_id: str, **fields) -> None:
@@ -31,7 +64,12 @@ def _insert_job(job_id: str, **fields) -> None:
         "result": None,
     }
     defaults.update(fields)
-    _job_store.create(job_id, defaults["status"], defaults["url"])
+    _job_store.create(
+        job_id,
+        defaults["status"],
+        defaults["url"],
+        user_id=_TEST_USER_ID,
+    )
     update_fields = {}
     if defaults["error"] is not None:
         update_fields["error"] = defaults["error"]
@@ -52,16 +90,19 @@ class TestCreateJob:
 
     def test_invalid_url_returns_400(self):
         """유효하지 않은 URL은 400을 반환한다."""
-        resp = client.post("/api/jobs", json={"url": "not-a-url"})
+        headers = _get_auth_headers()
+        resp = client.post("/api/jobs", json={"url": "not-a-url"}, headers=headers)
         assert resp.status_code == 400
         assert "유효하지 않은" in resp.json()["detail"]
 
     @patch("src.api.main._run_pipeline")
     def test_valid_url_creates_job(self, mock_run):
         """유효한 URL로 작업을 생성한다."""
+        headers = _get_auth_headers()
         resp = client.post(
             "/api/jobs",
             json={"url": "https://www.youtube.com/watch?v=dQw4w9WgXcQ"},
+            headers=headers,
         )
         assert resp.status_code == 201
         data = resp.json()
@@ -72,6 +113,7 @@ class TestCreateJob:
     @patch("src.api.main._run_pipeline")
     def test_custom_params(self, mock_run):
         """커스텀 파라미터가 전달된다."""
+        headers = _get_auth_headers()
         resp = client.post(
             "/api/jobs",
             json={
@@ -79,6 +121,7 @@ class TestCreateJob:
                 "max_height": 720,
                 "frame_interval": 2.0,
             },
+            headers=headers,
         )
         assert resp.status_code == 201
 
@@ -95,9 +138,11 @@ class TestCreateJob:
 
     def test_xss_url_sanitized(self):
         """XSS가 포함된 URL은 sanitize된다."""
+        headers = _get_auth_headers()
         resp = client.post(
             "/api/jobs",
             json={"url": "<script>alert('xss')</script>"},
+            headers=headers,
         )
         assert resp.status_code == 400
         detail = resp.json()["detail"]
@@ -110,30 +155,34 @@ class TestGetJob:
 
     def test_not_found(self):
         """존재하지 않는 작업은 404를 반환한다."""
-        resp = client.get("/api/jobs/nonexistent")
+        headers = _get_auth_headers()
+        resp = client.get("/api/jobs/nonexistent", headers=headers)
         assert resp.status_code == 404
 
     @patch("src.api.main._run_pipeline")
     def test_get_pending_job(self, mock_run):
         """생성된 작업의 상태를 조회한다."""
+        headers = _get_auth_headers()
         create_resp = client.post(
             "/api/jobs",
             json={"url": "https://www.youtube.com/watch?v=dQw4w9WgXcQ"},
+            headers=headers,
         )
         job_id = create_resp.json()["id"]
 
-        resp = client.get(f"/api/jobs/{job_id}")
+        resp = client.get(f"/api/jobs/{job_id}", headers=headers)
         assert resp.status_code == 200
         assert resp.json()["status"] == "pending"
 
     def test_get_completed_job(self):
         """완료된 작업 조회."""
+        headers = _get_auth_headers()
         _insert_job(
             "aabbccddeeff",
             status=JobStatus.completed,
             result={"num_points3d": 100},
         )
-        resp = client.get("/api/jobs/aabbccddeeff")
+        resp = client.get("/api/jobs/aabbccddeeff", headers=headers)
         assert resp.status_code == 200
         data = resp.json()
         assert data["status"] == "completed"
@@ -141,12 +190,13 @@ class TestGetJob:
 
     def test_get_failed_job(self):
         """실패한 작업 조회."""
+        headers = _get_auth_headers()
         _insert_job(
             "aabbccddeef1",
             status=JobStatus.failed,
             error="COLMAP 실패",
         )
-        resp = client.get("/api/jobs/aabbccddeef1")
+        resp = client.get("/api/jobs/aabbccddeef1", headers=headers)
         assert resp.status_code == 200
         assert resp.json()["error"] == "COLMAP 실패"
 
@@ -156,7 +206,8 @@ class TestListJobs:
 
     def test_empty_list(self):
         """Job이 없으면 빈 목록을 반환한다."""
-        resp = client.get("/api/jobs")
+        headers = _get_auth_headers()
+        resp = client.get("/api/jobs", headers=headers)
         assert resp.status_code == 200
         data = resp.json()
         assert data["items"] == []
@@ -164,10 +215,11 @@ class TestListJobs:
 
     def test_list_all_jobs(self):
         """모든 Job 목록을 반환한다."""
+        headers = _get_auth_headers()
         _insert_job("aabbccddee01", status=JobStatus.completed)
         _insert_job("aabbccddee02", status=JobStatus.failed, error="err")
         _insert_job("aabbccddee03", status=JobStatus.processing)
-        resp = client.get("/api/jobs")
+        resp = client.get("/api/jobs", headers=headers)
         assert resp.status_code == 200
         data = resp.json()
         assert data["total"] == 3
@@ -175,29 +227,32 @@ class TestListJobs:
 
     def test_filter_by_status(self):
         """상태별 필터링이 동작한다."""
+        headers = _get_auth_headers()
         _insert_job("aabbccddee04", status=JobStatus.completed)
         _insert_job("aabbccddee05", status=JobStatus.failed, error="err")
-        resp = client.get("/api/jobs?status=completed")
+        resp = client.get("/api/jobs?status=completed", headers=headers)
         data = resp.json()
         assert data["total"] == 1
         assert data["items"][0]["status"] == "completed"
 
     def test_pagination(self):
         """페이지네이션이 동작한다."""
+        headers = _get_auth_headers()
         for i in range(5):
             _insert_job(f"aabbccddee{i:02d}", status=JobStatus.completed)
-        resp = client.get("/api/jobs?limit=2&offset=0")
+        resp = client.get("/api/jobs?limit=2&offset=0", headers=headers)
         data = resp.json()
         assert data["total"] == 5
         assert len(data["items"]) == 2
 
-        resp2 = client.get("/api/jobs?limit=2&offset=4")
+        resp2 = client.get("/api/jobs?limit=2&offset=4", headers=headers)
         data2 = resp2.json()
         assert len(data2["items"]) == 1
 
     def test_invalid_status(self):
         """잘못된 상태 값은 422를 반환한다."""
-        resp = client.get("/api/jobs?status=invalid")
+        headers = _get_auth_headers()
+        resp = client.get("/api/jobs?status=invalid", headers=headers)
         assert resp.status_code == 422
 
 
@@ -206,40 +261,46 @@ class TestDeleteJob:
 
     def test_not_found(self):
         """존재하지 않는 작업은 404를 반환한다."""
-        resp = client.delete("/api/jobs/nonexistent")
+        headers = _get_auth_headers()
+        resp = client.delete("/api/jobs/nonexistent", headers=headers)
         assert resp.status_code == 404
 
     def test_processing_returns_409(self):
         """처리 중인 작업은 409를 반환한다."""
+        headers = _get_auth_headers()
         _insert_job("aabbccddeef9", status=JobStatus.processing)
-        resp = client.delete("/api/jobs/aabbccddeef9")
+        resp = client.delete("/api/jobs/aabbccddeef9", headers=headers)
         assert resp.status_code == 409
         assert "처리 중" in resp.json()["detail"]
 
     def test_delete_completed_job(self):
         """완료된 작업을 삭제한다."""
+        headers = _get_auth_headers()
         _insert_job("aabbccddeed1", status=JobStatus.completed)
-        resp = client.delete("/api/jobs/aabbccddeed1")
+        resp = client.delete("/api/jobs/aabbccddeed1", headers=headers)
         assert resp.status_code == 204
         assert _job_store.get("aabbccddeed1") is None
 
     def test_delete_failed_job(self):
         """실패한 작업을 삭제한다."""
+        headers = _get_auth_headers()
         _insert_job("aabbccddeed2", status=JobStatus.failed, error="err")
-        resp = client.delete("/api/jobs/aabbccddeed2")
+        resp = client.delete("/api/jobs/aabbccddeed2", headers=headers)
         assert resp.status_code == 204
         assert _job_store.get("aabbccddeed2") is None
 
     def test_delete_pending_job(self):
         """대기 중인 작업을 삭제한다."""
+        headers = _get_auth_headers()
         _insert_job("aabbccddeed3", status=JobStatus.pending)
-        resp = client.delete("/api/jobs/aabbccddeed3")
+        resp = client.delete("/api/jobs/aabbccddeed3", headers=headers)
         assert resp.status_code == 204
         assert _job_store.get("aabbccddeed3") is None
 
     @patch("src.api.main.OUTPUT_BASE_DIR")
     def test_delete_cleans_disk(self, mock_base_dir, tmp_path):
         """삭제 시 디스크 파일도 정리한다."""
+        headers = _get_auth_headers()
         mock_base_dir.resolve.return_value = tmp_path.resolve()
         job_dir = tmp_path / "aabbccddeed4"
         job_dir.mkdir(parents=True)
@@ -247,7 +308,7 @@ class TestDeleteJob:
         mock_base_dir.__truediv__ = lambda self, x: tmp_path / x
 
         _insert_job("aabbccddeed4", status=JobStatus.completed)
-        resp = client.delete("/api/jobs/aabbccddeed4")
+        resp = client.delete("/api/jobs/aabbccddeed4", headers=headers)
         assert resp.status_code == 204
         assert not job_dir.exists()
 
@@ -257,25 +318,29 @@ class TestGetJobResult:
 
     def test_not_found(self):
         """존재하지 않는 작업은 404를 반환한다."""
-        resp = client.get("/api/jobs/nonexistent/result")
+        headers = _get_auth_headers()
+        resp = client.get("/api/jobs/nonexistent/result", headers=headers)
         assert resp.status_code == 404
 
     def test_not_completed(self):
         """완료되지 않은 작업은 400을 반환한다."""
+        headers = _get_auth_headers()
         _insert_job("aabbccddeef2", status=JobStatus.processing)
-        resp = client.get("/api/jobs/aabbccddeef2/result")
+        resp = client.get("/api/jobs/aabbccddeef2/result", headers=headers)
         assert resp.status_code == 400
         assert "완료되지 않았습니다" in resp.json()["detail"]
 
     def test_ply_not_found(self):
         """PLY 파일이 없으면 404를 반환한다."""
+        headers = _get_auth_headers()
         _insert_job("aabbccddeef3", status=JobStatus.completed)
-        resp = client.get("/api/jobs/aabbccddeef3/result")
+        resp = client.get("/api/jobs/aabbccddeef3/result", headers=headers)
         assert resp.status_code == 404
 
     @patch("src.api.main.OUTPUT_BASE_DIR")
     def test_download_ply(self, mock_base_dir, tmp_path):
         """PLY 파일을 다운로드한다."""
+        headers = _get_auth_headers()
         mock_base_dir.resolve.return_value = tmp_path.resolve()
         ply_file = tmp_path / "points.ply"
         ply_file.write_text("ply content")
@@ -285,7 +350,7 @@ class TestGetJobResult:
             status=JobStatus.completed,
             ply_path=str(ply_file),
         )
-        resp = client.get("/api/jobs/aabbccddeef4/result")
+        resp = client.get("/api/jobs/aabbccddeef4/result", headers=headers)
         assert resp.status_code == 200
         assert resp.content == b"ply content"
 
@@ -295,46 +360,52 @@ class TestGetSplatFile:
 
     def test_not_found(self):
         """존재하지 않는 작업은 404를 반환한다."""
-        resp = client.get("/api/jobs/nonexistent/splat")
+        headers = _get_auth_headers()
+        resp = client.get("/api/jobs/nonexistent/splat", headers=headers)
         assert resp.status_code == 404
 
     def test_not_completed(self):
         """완료되지 않은 작업은 400을 반환한다."""
+        headers = _get_auth_headers()
         _insert_job("aabbccddees1", status=JobStatus.processing)
-        resp = client.get("/api/jobs/aabbccddees1/splat")
+        resp = client.get("/api/jobs/aabbccddees1/splat", headers=headers)
         assert resp.status_code == 400
 
     def test_no_splat_path(self):
         """gs_splat_path가 없으면 404를 반환한다."""
+        headers = _get_auth_headers()
         _insert_job("aabbccddees2", status=JobStatus.completed)
-        resp = client.get("/api/jobs/aabbccddees2/splat")
+        resp = client.get("/api/jobs/aabbccddees2/splat", headers=headers)
         assert resp.status_code == 404
 
     @patch("src.api.main.OUTPUT_BASE_DIR")
     def test_serve_splat_file(self, mock_base_dir, tmp_path):
         """GS splat 파일을 서빙한다."""
+        headers = _get_auth_headers()
         mock_base_dir.resolve.return_value = tmp_path.resolve()
         splat_file = tmp_path / "point_cloud.ply"
         splat_file.write_bytes(b"splat binary data")
 
         _insert_job("aabbccddees3", status=JobStatus.completed)
         _job_store.update("aabbccddees3", gs_splat_path=str(splat_file))
-        resp = client.get("/api/jobs/aabbccddees3/splat")
+        resp = client.get("/api/jobs/aabbccddees3/splat", headers=headers)
         assert resp.status_code == 200
         assert resp.content == b"splat binary data"
 
     def test_response_includes_gs_splat_url(self):
         """gs_splat_path가 있으면 응답에 gs_splat_url이 포함된다."""
+        headers = _get_auth_headers()
         _insert_job("aabbccddees4", status=JobStatus.completed)
         _job_store.update("aabbccddees4", gs_splat_path="/some/path.ply")
-        resp = client.get("/api/jobs/aabbccddees4")
+        resp = client.get("/api/jobs/aabbccddees4", headers=headers)
         assert resp.status_code == 200
         assert resp.json()["gs_splat_url"] == "/api/jobs/aabbccddees4/splat"
 
     def test_response_no_gs_splat_url(self):
         """gs_splat_path가 없으면 gs_splat_url은 null이다."""
+        headers = _get_auth_headers()
         _insert_job("aabbccddees5", status=JobStatus.completed)
-        resp = client.get("/api/jobs/aabbccddees5")
+        resp = client.get("/api/jobs/aabbccddees5", headers=headers)
         assert resp.status_code == 200
         assert resp.json()["gs_splat_url"] is None
 
@@ -383,24 +454,30 @@ class TestGetPotreeFile:
 
     def test_not_found(self):
         """존재하지 않는 작업은 404를 반환한다."""
-        resp = client.get("/api/jobs/nonexistent/potree/metadata.json")
+        headers = _get_auth_headers()
+        resp = client.get("/api/jobs/nonexistent/potree/metadata.json", headers=headers)
         assert resp.status_code == 404
 
     def test_not_completed(self):
         """완료되지 않은 작업은 400을 반환한다."""
+        headers = _get_auth_headers()
         _insert_job("aabbccddeea1", status=JobStatus.processing)
-        resp = client.get("/api/jobs/aabbccddeea1/potree/metadata.json")
+        url = "/api/jobs/aabbccddeea1/potree/metadata.json"
+        resp = client.get(url, headers=headers)
         assert resp.status_code == 400
 
     def test_no_potree_dir(self):
         """potree_dir이 없으면 404를 반환한다."""
+        headers = _get_auth_headers()
         _insert_job("aabbccddeea2", status=JobStatus.completed)
-        resp = client.get("/api/jobs/aabbccddeea2/potree/metadata.json")
+        url = "/api/jobs/aabbccddeea2/potree/metadata.json"
+        resp = client.get(url, headers=headers)
         assert resp.status_code == 404
 
     @patch("src.api.main.OUTPUT_BASE_DIR")
     def test_serve_potree_file(self, mock_base_dir, tmp_path):
         """Potree 파일을 서빙한다."""
+        headers = _get_auth_headers()
         mock_base_dir.resolve.return_value = tmp_path.resolve()
         potree_dir = tmp_path / "potree"
         potree_dir.mkdir()
@@ -409,20 +486,25 @@ class TestGetPotreeFile:
 
         _insert_job("aabbccddeea3", status=JobStatus.completed)
         _job_store.update("aabbccddeea3", potree_dir=str(potree_dir))
-        resp = client.get("/api/jobs/aabbccddeea3/potree/metadata.json")
+        url = "/api/jobs/aabbccddeea3/potree/metadata.json"
+        resp = client.get(url, headers=headers)
         assert resp.status_code == 200
         assert resp.json() == {"version": "2.0"}
 
     @patch("src.api.main.OUTPUT_BASE_DIR")
     def test_path_traversal_blocked(self, mock_base_dir, tmp_path):
         """경로 순회 공격이 차단된다."""
+        headers = _get_auth_headers()
         mock_base_dir.resolve.return_value = tmp_path.resolve()
         potree_dir = tmp_path / "potree"
         potree_dir.mkdir()
 
         _insert_job("aabbccddeea4", status=JobStatus.completed)
         _job_store.update("aabbccddeea4", potree_dir=str(potree_dir))
-        resp = client.get("/api/jobs/aabbccddeea4/potree/../../etc/passwd")
+        resp = client.get(
+            "/api/jobs/aabbccddeea4/potree/../../etc/passwd",
+            headers=headers,
+        )
         assert resp.status_code in (400, 404)
 
 
@@ -431,17 +513,19 @@ class TestStreamJob:
 
     def test_stream_not_found(self):
         """존재하지 않는 작업은 404를 반환한다."""
-        resp = client.get("/api/jobs/nonexistent/stream")
+        headers = _get_auth_headers()
+        resp = client.get("/api/jobs/nonexistent/stream", headers=headers)
         assert resp.status_code == 404
 
     def test_stream_completed_job(self):
         """완료된 작업은 최종 이벤트 1개만 전송한다."""
+        headers = _get_auth_headers()
         _insert_job(
             "aabbccddeef5",
             status=JobStatus.completed,
             result={"num_points3d": 42},
         )
-        resp = client.get("/api/jobs/aabbccddeef5/stream")
+        resp = client.get("/api/jobs/aabbccddeef5/stream", headers=headers)
         assert resp.status_code == 200
         events = _parse_sse_events(resp)
         assert len(events) == 1
@@ -450,12 +534,13 @@ class TestStreamJob:
 
     def test_stream_failed_job(self):
         """실패한 작업은 에러 이벤트를 전송한다."""
+        headers = _get_auth_headers()
         _insert_job(
             "aabbccddeef6",
             status=JobStatus.failed,
             error="COLMAP 실패",
         )
-        resp = client.get("/api/jobs/aabbccddeef6/stream")
+        resp = client.get("/api/jobs/aabbccddeef6/stream", headers=headers)
         assert resp.status_code == 200
         events = _parse_sse_events(resp)
         assert len(events) == 1
@@ -464,22 +549,23 @@ class TestStreamJob:
 
     def test_stream_no_duplicate_on_completion(self):
         """완료 시 progress 이벤트와 completed 이벤트가 중복 전송되지 않는다."""
+        headers = _get_auth_headers()
         _insert_job("aabbccddeef7", status=JobStatus.completed)
         _job_store.update(
             "aabbccddeef7",
             progress={"stage": "reconstruction", "percent": 100, "message": "완료"},
         )
-        resp = client.get("/api/jobs/aabbccddeef7/stream")
+        resp = client.get("/api/jobs/aabbccddeef7/stream", headers=headers)
         events = _parse_sse_events(resp)
-        # completed 상태이므로 최종 이벤트 1개만
         assert len(events) == 1
         assert events[0]["status"] == "completed"
 
     @patch("src.api.main._SSE_TIMEOUT_SECONDS", 0)
     def test_stream_timeout(self):
         """타임아웃 시 연결이 종료된다."""
+        headers = _get_auth_headers()
         _insert_job("aabbccddeef8", status=JobStatus.processing)
-        resp = client.get("/api/jobs/aabbccddeef8/stream")
+        resp = client.get("/api/jobs/aabbccddeef8/stream", headers=headers)
         events = _parse_sse_events(resp)
         assert any(e.get("status") == "timeout" for e in events)
 
@@ -489,18 +575,21 @@ class TestListJobFiles:
 
     def test_not_found(self):
         """존재하지 않는 작업은 404를 반환한다."""
-        resp = client.get("/api/jobs/nonexistent/files")
+        headers = _get_auth_headers()
+        resp = client.get("/api/jobs/nonexistent/files", headers=headers)
         assert resp.status_code == 404
 
     def test_not_completed(self):
         """완료되지 않은 작업은 400을 반환한다."""
+        headers = _get_auth_headers()
         _insert_job("aabbccddeeb1", status=JobStatus.processing)
-        resp = client.get("/api/jobs/aabbccddeeb1/files")
+        resp = client.get("/api/jobs/aabbccddeeb1/files", headers=headers)
         assert resp.status_code == 400
 
     @patch("src.api.main.OUTPUT_BASE_DIR")
     def test_list_files(self, mock_base_dir, tmp_path):
         """결과 파일 목록을 반환한다."""
+        headers = _get_auth_headers()
         mock_base_dir.resolve.return_value = tmp_path.resolve()
         job_dir = tmp_path / "aabbccddeeb2"
         recon_dir = job_dir / "reconstruction"
@@ -508,11 +597,10 @@ class TestListJobFiles:
         (recon_dir / "points.ply").write_text("ply data")
         (recon_dir / "cameras.txt").write_text("camera data")
 
-        # _validate_job_path uses OUTPUT_BASE_DIR directly
         mock_base_dir.__truediv__ = lambda self, x: tmp_path / x
 
         _insert_job("aabbccddeeb2", status=JobStatus.completed)
-        resp = client.get("/api/jobs/aabbccddeeb2/files")
+        resp = client.get("/api/jobs/aabbccddeeb2/files", headers=headers)
         assert resp.status_code == 200
         data = resp.json()
         assert data["job_id"] == "aabbccddeeb2"
@@ -523,13 +611,14 @@ class TestListJobFiles:
     @patch("src.api.main.OUTPUT_BASE_DIR")
     def test_no_reconstruction_dir(self, mock_base_dir, tmp_path):
         """reconstruction 디렉토리가 없으면 빈 목록을 반환한다."""
+        headers = _get_auth_headers()
         mock_base_dir.resolve.return_value = tmp_path.resolve()
         job_dir = tmp_path / "aabbccddeeb3"
         job_dir.mkdir(parents=True)
         mock_base_dir.__truediv__ = lambda self, x: tmp_path / x
 
         _insert_job("aabbccddeeb3", status=JobStatus.completed)
-        resp = client.get("/api/jobs/aabbccddeeb3/files")
+        resp = client.get("/api/jobs/aabbccddeeb3/files", headers=headers)
         assert resp.status_code == 200
         assert resp.json()["files"] == []
 
@@ -539,18 +628,24 @@ class TestDownloadJobFile:
 
     def test_not_found(self):
         """존재하지 않는 작업은 404를 반환한다."""
-        resp = client.get("/api/jobs/nonexistent/download/points.ply")
+        headers = _get_auth_headers()
+        resp = client.get("/api/jobs/nonexistent/download/points.ply", headers=headers)
         assert resp.status_code == 404
 
     def test_not_completed(self):
         """완료되지 않은 작업은 400을 반환한다."""
+        headers = _get_auth_headers()
         _insert_job("aabbccddeec1", status=JobStatus.processing)
-        resp = client.get("/api/jobs/aabbccddeec1/download/points.ply")
+        resp = client.get(
+            "/api/jobs/aabbccddeec1/download/points.ply",
+            headers=headers,
+        )
         assert resp.status_code == 400
 
     @patch("src.api.main.OUTPUT_BASE_DIR")
     def test_download_file(self, mock_base_dir, tmp_path):
         """결과 파일을 다운로드한다."""
+        headers = _get_auth_headers()
         mock_base_dir.resolve.return_value = tmp_path.resolve()
         job_dir = tmp_path / "aabbccddeec2"
         recon_dir = job_dir / "reconstruction"
@@ -559,7 +654,10 @@ class TestDownloadJobFile:
         mock_base_dir.__truediv__ = lambda self, x: tmp_path / x
 
         _insert_job("aabbccddeec2", status=JobStatus.completed)
-        resp = client.get("/api/jobs/aabbccddeec2/download/points.ply")
+        resp = client.get(
+            "/api/jobs/aabbccddeec2/download/points.ply",
+            headers=headers,
+        )
         assert resp.status_code == 200
         assert resp.content == b"ply binary data"
         assert "attachment" in resp.headers.get("content-disposition", "")
@@ -567,6 +665,7 @@ class TestDownloadJobFile:
     @patch("src.api.main.OUTPUT_BASE_DIR")
     def test_file_not_exists(self, mock_base_dir, tmp_path):
         """존재하지 않는 파일은 404를 반환한다."""
+        headers = _get_auth_headers()
         mock_base_dir.resolve.return_value = tmp_path.resolve()
         job_dir = tmp_path / "aabbccddeec3"
         recon_dir = job_dir / "reconstruction"
@@ -574,12 +673,16 @@ class TestDownloadJobFile:
         mock_base_dir.__truediv__ = lambda self, x: tmp_path / x
 
         _insert_job("aabbccddeec3", status=JobStatus.completed)
-        resp = client.get("/api/jobs/aabbccddeec3/download/nonexistent.ply")
+        resp = client.get(
+            "/api/jobs/aabbccddeec3/download/nonexistent.ply",
+            headers=headers,
+        )
         assert resp.status_code == 404
 
     @patch("src.api.main.OUTPUT_BASE_DIR")
     def test_path_traversal_blocked(self, mock_base_dir, tmp_path):
         """경로 순회 공격이 차단된다."""
+        headers = _get_auth_headers()
         mock_base_dir.resolve.return_value = tmp_path.resolve()
         job_dir = tmp_path / "aabbccddeec4"
         recon_dir = job_dir / "reconstruction"
@@ -587,12 +690,16 @@ class TestDownloadJobFile:
         mock_base_dir.__truediv__ = lambda self, x: tmp_path / x
 
         _insert_job("aabbccddeec4", status=JobStatus.completed)
-        resp = client.get("/api/jobs/aabbccddeec4/download/../../etc/passwd")
+        resp = client.get(
+            "/api/jobs/aabbccddeec4/download/../../etc/passwd",
+            headers=headers,
+        )
         assert resp.status_code in (400, 404)
 
     @patch("src.api.main.OUTPUT_BASE_DIR")
     def test_download_nested_file(self, mock_base_dir, tmp_path):
         """하위 디렉토리의 파일도 다운로드할 수 있다."""
+        headers = _get_auth_headers()
         mock_base_dir.resolve.return_value = tmp_path.resolve()
         job_dir = tmp_path / "aabbccddeec5"
         recon_dir = job_dir / "reconstruction"
@@ -602,6 +709,9 @@ class TestDownloadJobFile:
         mock_base_dir.__truediv__ = lambda self, x: tmp_path / x
 
         _insert_job("aabbccddeec5", status=JobStatus.completed)
-        resp = client.get("/api/jobs/aabbccddeec5/download/sparse/cameras.bin")
+        resp = client.get(
+            "/api/jobs/aabbccddeec5/download/sparse/cameras.bin",
+            headers=headers,
+        )
         assert resp.status_code == 200
         assert resp.content == b"camera binary"
