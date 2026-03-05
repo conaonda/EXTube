@@ -6,17 +6,32 @@ import type { Job } from '../../api'
 
 vi.mock('../../api', () => ({
   getJobs: vi.fn(),
+  ApiError: class ApiError extends Error {
+    kind: string
+    status: number | null
+    retryable: boolean
+    constructor(message: string, kind: string, status: number | null = null) {
+      super(message)
+      this.name = 'ApiError'
+      this.kind = kind
+      this.status = status
+      this.retryable = kind === 'network' || kind === 'rate_limit' || kind === 'server'
+    }
+  },
 }))
 
 import { getJobs } from '../../api'
 import JobHistory from '../JobHistory'
+import { ToastProvider } from '../Toast'
 
 const mockGetJobs = vi.mocked(getJobs)
 
 function renderWithRouter(initialEntries = ['/history']) {
   return render(
     <MemoryRouter initialEntries={initialEntries}>
-      <JobHistory />
+      <ToastProvider>
+        <JobHistory />
+      </ToastProvider>
     </MemoryRouter>,
   )
 }

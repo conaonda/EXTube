@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useState } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
-import { getJobs } from '../api'
+import { ApiError, getJobs } from '../api'
 import type { Job } from '../api'
+import { useToast } from '../hooks/useToast'
 
 const STATUS_OPTIONS = [
   { value: '', label: '전체' },
@@ -29,6 +30,7 @@ const statusLabels: Record<string, string> = {
 
 export default function JobHistory() {
   const navigate = useNavigate()
+  const { addToast } = useToast()
   const [searchParams, setSearchParams] = useSearchParams()
 
   const currentStatus = searchParams.get('status') || ''
@@ -51,11 +53,15 @@ export default function JobHistory() {
       setJobs(data.items)
       setTotal(data.total)
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Job 목록 조회 실패')
+      const msg = err instanceof Error ? err.message : 'Job 목록 조회 실패'
+      setError(msg)
+      if (err instanceof ApiError && err.retryable) {
+        addToast(msg, 'warning', { label: '재시도', onClick: fetchJobs })
+      }
     } finally {
       setLoading(false)
     }
-  }, [currentStatus, currentPage])
+  }, [currentStatus, currentPage, addToast])
 
   useEffect(() => {
     fetchJobs()
@@ -108,15 +114,45 @@ export default function JobHistory() {
             borderRadius: '4px',
             color: '#dc2626',
             marginBottom: '1rem',
+            display: 'flex',
+            alignItems: 'center',
+            gap: '0.5rem',
           }}
         >
-          {error}
+          <span style={{ flex: 1 }}>{error}</span>
+          <button
+            onClick={fetchJobs}
+            style={{
+              padding: '0.25rem 0.5rem',
+              background: '#dc2626',
+              color: '#fff',
+              border: 'none',
+              borderRadius: '4px',
+              cursor: 'pointer',
+              fontSize: '0.75rem',
+              fontWeight: 600,
+            }}
+          >
+            재시도
+          </button>
         </div>
       )}
 
       {loading ? (
         <div style={{ color: '#666', padding: '2rem', textAlign: 'center' }}>
+          <div
+            style={{
+              width: '24px',
+              height: '24px',
+              border: '3px solid #e0e0e0',
+              borderTop: '3px solid #2563eb',
+              borderRadius: '50%',
+              animation: 'spin 0.8s linear infinite',
+              margin: '0 auto 0.5rem',
+            }}
+          />
           로딩 중...
+          <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
         </div>
       ) : jobs.length === 0 ? (
         <div style={{ color: '#666', padding: '2rem', textAlign: 'center' }}>
