@@ -91,6 +91,7 @@ async def _lifespan(application: FastAPI) -> AsyncIterator[None]:
     stop_redis_subscriber()
 
 
+
 app = FastAPI(title="EXTube API", version="0.5.0", lifespan=_lifespan)
 
 # 인증 라우터
