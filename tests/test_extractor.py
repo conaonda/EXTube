@@ -2,7 +2,8 @@
 
 import json
 from pathlib import Path
-from unittest.mock import patch
+from concurrent.futures import ThreadPoolExecutor
+from unittest.mock import MagicMock, patch
 
 import pytest
 from src.extractor.extractor import (
@@ -66,6 +67,7 @@ class TestExtractFrames:
 class TestFilterBlurryFrames:
     """블러 필터링 테스트."""
 
+    @patch("src.extractor.extractor.concurrent.futures.ProcessPoolExecutor", ThreadPoolExecutor)
     @patch("src.extractor.extractor.compute_blur_score")
     def test_filter_by_score(self, mock_blur, sample_frames: list[Path]):
         mock_blur.side_effect = [1000.0, 2000.0, 3000.0, 4000.0, 5000.0]
@@ -76,6 +78,7 @@ class TestFilterBlurryFrames:
         assert len(filtered) == 2
         assert len(scores) == 5
 
+    @patch("src.extractor.extractor.concurrent.futures.ProcessPoolExecutor", ThreadPoolExecutor)
     @patch("src.extractor.extractor.compute_blur_score")
     def test_all_pass(self, mock_blur, sample_frames: list[Path]):
         mock_blur.return_value = 500.0
@@ -89,6 +92,7 @@ class TestFilterBlurryFrames:
 class TestExtractAndFilter:
     """통합 추출+필터링 테스트."""
 
+    @patch("src.extractor.extractor.concurrent.futures.ProcessPoolExecutor", ThreadPoolExecutor)
     @patch("src.extractor.extractor.extract_frames")
     @patch("src.extractor.extractor.compute_blur_score")
     def test_extract_and_filter(self, mock_blur, mock_extract, tmp_path: Path):
@@ -120,3 +124,54 @@ class TestExtractAndFilter:
         assert metadata_path.exists()
         metadata = json.loads(metadata_path.read_text())
         assert len(metadata) == 4
+
+
+class TestParallelBlurScore:
+    """병렬 블러 점수 계산 테스트."""
+
+    @patch("src.extractor.extractor.concurrent.futures.ProcessPoolExecutor", ThreadPoolExecutor)
+    @patch("src.extractor.extractor.compute_blur_score")
+    def test_parallel_blur_scoring(self, mock_blur, sample_frames: list[Path]):
+        """병렬 처리 결과가 순차 처리와 동일한지 검증."""
+        mock_blur.side_effect = [1000.0, 2000.0, 3000.0, 4000.0, 5000.0]
+        passed, filtered, scores = filter_blurry_frames(
+            sample_frames, blur_threshold=2500.0
+        )
+        assert len(passed) == 3
+        assert len(filtered) == 2
+        assert len(scores) == 5
+        # 순서 유지 확인
+        assert passed[0].name == "frame_000002.jpg"
+        assert passed[1].name == "frame_000003.jpg"
+        assert passed[2].name == "frame_000004.jpg"
+
+    @patch("src.extractor.extractor.concurrent.futures.ProcessPoolExecutor", ThreadPoolExecutor)
+    @patch("src.extractor.extractor.compute_blur_score")
+    def test_progress_callback_called(self, mock_blur, sample_frames: list[Path]):
+        """progress_callback이 올바른 인자로 호출되는지 검증."""
+        mock_blur.return_value = 500.0
+        callback = MagicMock()
+
+        filter_blurry_frames(sample_frames, blur_threshold=100.0, progress_callback=callback)
+
+        assert callback.call_count == 5
+        # 모든 호출에서 total은 5
+        for call_args in callback.call_args_list:
+            completed, total = call_args[0]
+            assert total == 5
+            assert 1 <= completed <= 5
+
+    @patch("src.extractor.extractor.concurrent.futures.ProcessPoolExecutor", ThreadPoolExecutor)
+    @patch("src.extractor.extractor.compute_blur_score")
+    def test_single_frame_no_error(self, mock_blur, tmp_path: Path):
+        """단일 프레임에서도 병렬 처리가 정상 동작하는지 검증."""
+        single_frame = tmp_path / "frame_000000.jpg"
+        single_frame.write_bytes(b"\xff" * 100)
+        mock_blur.return_value = 300.0
+
+        passed, filtered, scores = filter_blurry_frames(
+            [single_frame], blur_threshold=100.0
+        )
+        assert len(passed) == 1
+        assert len(filtered) == 0
+        assert scores[single_frame.name] == 300.0

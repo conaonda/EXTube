@@ -2,8 +2,11 @@
 
 from __future__ import annotations
 
+import concurrent.futures
 import json
+import os
 import subprocess
+from collections.abc import Callable
 from dataclasses import asdict, dataclass
 from pathlib import Path
 
@@ -115,24 +118,45 @@ def compute_blur_score(image_path: Path) -> float:
 def filter_blurry_frames(
     frame_paths: list[Path],
     blur_threshold: float = 100.0,
+    progress_callback: Callable[[int, int], None] | None = None,
 ) -> tuple[list[Path], list[Path], dict[str, float]]:
     """블러 감지를 통해 저품질 프레임을 필터링한다.
+
+    병렬 처리로 블러 점수를 계산하여 성능을 개선한다.
 
     Args:
         frame_paths: 프레임 파일 경로 목록
         blur_threshold: 블러 임계값 (이 값 미만이면 블러로 판정)
+        progress_callback: 진행률 콜백 (completed_count, total_count)
 
     Returns:
         (통과 프레임 목록, 필터링된 프레임 목록, 파일명→블러점수 매핑)
     """
+    total = len(frame_paths)
+    if total == 0:
+        return [], [], {}
+
+    max_workers = min(os.cpu_count() or 1, total, 8)
+    scores: dict[str, float] = {}
+    completed = 0
+
+    with concurrent.futures.ProcessPoolExecutor(max_workers=max_workers) as executor:
+        future_to_path = {
+            executor.submit(compute_blur_score, path): path
+            for path in frame_paths
+        }
+
+        for future in concurrent.futures.as_completed(future_to_path):
+            path = future_to_path[future]
+            scores[path.name] = future.result()
+            completed += 1
+            if progress_callback is not None:
+                progress_callback(completed, total)
+
     passed = []
     filtered = []
-    scores: dict[str, float] = {}
-
     for path in frame_paths:
-        score = compute_blur_score(path)
-        scores[path.name] = score
-        if score >= blur_threshold:
+        if scores[path.name] >= blur_threshold:
             passed.append(path)
         else:
             filtered.append(path)
@@ -145,6 +169,7 @@ def extract_and_filter(
     output_dir: Path,
     interval: float = 1.0,
     blur_threshold: float = 100.0,
+    progress_callback: Callable[[int, int], None] | None = None,
 ) -> ExtractionResult:
     """영상에서 프레임을 추출하고 품질 필터링을 수행한다.
 
@@ -153,13 +178,16 @@ def extract_and_filter(
         output_dir: 출력 디렉토리
         interval: 추출 간격 (초)
         blur_threshold: 블러 임계값
+        progress_callback: 진행률 콜백 (completed_count, total_count)
 
     Returns:
         ExtractionResult 추출 결과
     """
     frames_dir = output_dir / "frames"
     all_frames = extract_frames(video_path, frames_dir, interval)
-    passed, filtered, scores = filter_blurry_frames(all_frames, blur_threshold)
+    passed, filtered, scores = filter_blurry_frames(
+        all_frames, blur_threshold, progress_callback
+    )
 
     # 필터링된 프레임을 별도 디렉토리로 이동
     filtered_dir = output_dir / "filtered"
