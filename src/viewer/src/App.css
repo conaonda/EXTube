@@ -1,0 +1,221 @@
+.app-overlay {
+  position: absolute;
+  top: 1rem;
+  left: 1rem;
+  right: 1rem;
+  z-index: 10;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+@media (max-width: 640px) {
+  .app-overlay {
+    top: 0.5rem;
+    left: 0.5rem;
+    right: 0.5rem;
+  }
+}
+
+/* JobForm */
+.job-form {
+  display: flex;
+  gap: 0.5rem;
+}
+
+@media (max-width: 480px) {
+  .job-form {
+    flex-direction: column;
+  }
+}
+
+.job-form-input {
+  flex: 1;
+  padding: 0.5rem 0.75rem;
+  border: 1px solid #ccc;
+  border-radius: 4px;
+  font-size: 0.875rem;
+  min-width: 0;
+}
+
+.job-form-input:focus {
+  outline: 2px solid #2563eb;
+  outline-offset: -1px;
+  border-color: #2563eb;
+}
+
+.job-form-button {
+  padding: 0.5rem 1rem;
+  background: #2563eb;
+  color: #fff;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 0.875rem;
+  white-space: nowrap;
+}
+
+.job-form-button:disabled {
+  background: #999;
+  cursor: not-allowed;
+}
+
+.job-form-button:focus-visible {
+  outline: 2px solid #1d4ed8;
+  outline-offset: 2px;
+}
+
+/* Error bar */
+.error-bar {
+  padding: 0.5rem 0.75rem;
+  background: #fef2f2;
+  border-radius: 4px;
+  color: #dc2626;
+  font-size: 0.875rem;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.error-bar-message {
+  flex: 1;
+  min-width: 0;
+  word-break: break-word;
+}
+
+.error-bar-retry {
+  padding: 0.25rem 0.5rem;
+  background: #dc2626;
+  color: #fff;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 0.75rem;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.error-bar-retry:focus-visible {
+  outline: 2px solid #991b1b;
+  outline-offset: 2px;
+}
+
+/* JobStatus */
+.job-status {
+  padding: 0.5rem 0.75rem;
+  border-radius: 4px;
+  font-size: 0.875rem;
+}
+
+.job-status--failed {
+  background: #fef2f2;
+}
+
+.job-status--default {
+  background: #f0f9ff;
+}
+
+.job-status-progress {
+  margin-left: 0.5rem;
+  color: #1d4ed8;
+}
+
+.job-status-error {
+  color: #dc2626;
+  margin-left: 0.5rem;
+}
+
+.job-status-result {
+  color: #666;
+  margin-left: 0.5rem;
+}
+
+@media (max-width: 480px) {
+  .job-status-progress,
+  .job-status-error,
+  .job-status-result {
+    display: block;
+    margin-left: 0;
+    margin-top: 0.25rem;
+  }
+}
+
+/* ViewerControls */
+.viewer-controls {
+  position: absolute;
+  bottom: 1rem;
+  right: 1rem;
+  z-index: 10;
+  background: rgba(255, 255, 255, 0.9);
+  border-radius: 8px;
+  padding: 0.75rem;
+  font-size: 0.8rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  min-width: 180px;
+  max-width: calc(100vw - 2rem);
+}
+
+@media (max-width: 640px) {
+  .viewer-controls {
+    bottom: 0.5rem;
+    right: 0.5rem;
+    left: 0.5rem;
+    min-width: unset;
+  }
+}
+
+.viewer-controls-row {
+  display: flex;
+  gap: 0.25rem;
+}
+
+.viewer-controls-btn {
+  flex: 1;
+  padding: 0.25rem 0.5rem;
+  border: 1px solid #ccc;
+  border-radius: 4px;
+  background: #f3f4f6;
+  cursor: pointer;
+  font-size: 0.75rem;
+  min-height: 2rem;
+}
+
+.viewer-controls-btn:focus-visible {
+  outline: 2px solid #2563eb;
+  outline-offset: 1px;
+}
+
+.viewer-controls-btn--active {
+  border: 2px solid #2563eb;
+  background: #dbeafe;
+}
+
+.viewer-controls-bg-btn {
+  flex: 1;
+  padding: 0.25rem;
+  border: 1px solid #ccc;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 0.7rem;
+  min-height: 2rem;
+}
+
+.viewer-controls-bg-btn:focus-visible {
+  outline: 2px solid #2563eb;
+  outline-offset: 1px;
+}
+
+.viewer-controls-bg-btn--active {
+  border: 2px solid #2563eb;
+}
+
+.viewer-controls-info {
+  color: #666;
+  font-size: 0.75rem;
+}
+
+.viewer-controls-range {
+  width: 100%;
+}

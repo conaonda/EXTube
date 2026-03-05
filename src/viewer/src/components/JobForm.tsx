@@ -16,33 +16,21 @@ export default function JobForm({ onSubmit, disabled }: JobFormProps) {
   }
 
   return (
-    <form onSubmit={handleSubmit} style={{ display: 'flex', gap: '0.5rem' }}>
+    <form onSubmit={handleSubmit} className="job-form" role="search" aria-label="YouTube URL 입력">
       <input
         type="text"
         value={url}
         onChange={(e) => setUrl(e.target.value)}
         placeholder="YouTube URL을 입력하세요"
         disabled={disabled}
-        style={{
-          flex: 1,
-          padding: '0.5rem 0.75rem',
-          border: '1px solid #ccc',
-          borderRadius: '4px',
-          fontSize: '0.875rem',
-        }}
+        className="job-form-input"
+        aria-label="YouTube URL"
       />
       <button
         type="submit"
         disabled={disabled || !url.trim()}
-        style={{
-          padding: '0.5rem 1rem',
-          background: disabled ? '#999' : '#2563eb',
-          color: '#fff',
-          border: 'none',
-          borderRadius: '4px',
-          cursor: disabled ? 'not-allowed' : 'pointer',
-          fontSize: '0.875rem',
-        }}
+        className="job-form-button"
+        aria-label="3D 복원 시작"
       >
         3D 복원
       </button>

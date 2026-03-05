@@ -1,0 +1,42 @@
+groups:
+  - name: extube.rules
+    rules:
+      - alert: QueueBacklog
+        expr: extube_queue_length > 20
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "RQ 큐 적체 ({{ $value }}개)"
+          description: "10분 이상 큐 길이가 20을 초과했습니다."
+
+      - alert: HighErrorRate
+        expr: >
+          rate(http_requests_total{status=~"5.."}[5m])
+          / rate(http_requests_total[5m]) > 0.1
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "HTTP 에러율 {{ $value | humanizePercentage }}"
+          description: "5분간 HTTP 5xx 에러율이 10%를 초과했습니다."
+
+      - alert: WorkerDown
+        expr: extube_active_jobs > 0 and redis_connected_clients < 2
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Worker 프로세스 다운 감지"
+          description: "활성 Job이 있으나 Worker가 감지되지 않습니다."
+
+      - alert: DiskSpaceLow
+        expr: >
+          node_filesystem_avail_bytes{mountpoint="/"}
+          / node_filesystem_size_bytes{mountpoint="/"} < 0.1
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "디스크 여유 공간 {{ $value | humanizePercentage }}"
+          description: "루트 파티션 여유 공간이 10% 미만입니다."
