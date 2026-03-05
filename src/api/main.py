@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 import re
 import shutil
 import time
@@ -17,8 +18,10 @@ from typing import Any
 import redis
 from fastapi import Depends, FastAPI, HTTPException, Query, WebSocket
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, StreamingResponse
+from fastapi.responses import FileResponse, Response, StreamingResponse
 from fastapi.staticfiles import StaticFiles
+from prometheus_client import Gauge, generate_latest
+from prometheus_fastapi_instrumentator import Instrumentator
 from pydantic import BaseModel
 from rq import Queue
 
@@ -26,7 +29,6 @@ from src.api.auth import get_current_user, set_job_store
 from src.api.auth import router as auth_router
 from src.api.config import get_settings
 from src.api.db import JobStore
-from src.api.logging_config import get_logger, setup_logging
 from src.api.middleware import RequestLoggingMiddleware, register_exception_handlers
 from src.api.rate_limit import RateLimitMiddleware, RateLimitRule
 from src.api.tasks import run_pipeline
@@ -37,12 +39,9 @@ from src.api.ws import (
 )
 from src.downloader import validate_youtube_url
 
+logger = logging.getLogger(__name__)
+
 _settings = get_settings()
-
-# 모듈 임포트 시점에 로깅 초기화 (cache_logger_on_first_use=False와 함께 사용)
-setup_logging(json_format=_settings.log_json, log_level=_settings.log_level)
-
-logger = get_logger(__name__)
 
 
 def _get_redis_connection() -> redis.Redis:
@@ -110,6 +109,52 @@ app.add_middleware(RequestLoggingMiddleware)
 
 # 글로벌 예외 핸들러
 register_exception_handlers(app)
+
+# Prometheus 메트릭
+ACTIVE_JOBS_GAUGE = Gauge(
+    "extube_active_jobs", "Number of active jobs (pending + processing)"
+)
+QUEUE_LENGTH_GAUGE = Gauge("extube_queue_length", "Number of jobs in the RQ queue")
+
+
+def _update_job_gauges() -> None:
+    """Scrape 시점에 활성 Job 수와 큐 길이를 갱신한다."""
+    try:
+        active = 0
+        for s in ("pending", "processing"):
+            active += _job_store.list(status=s, limit=0)["total"]
+        ACTIVE_JOBS_GAUGE.set(active)
+    except Exception as e:
+        logger.warning("메트릭 게이지 업데이트 실패 (active_jobs): %s", e)
+    try:
+        conn = redis.from_url(
+            _settings.redis_url, socket_connect_timeout=2, socket_timeout=2
+        )
+        q = Queue(
+            _settings.rq_queue_name,
+            connection=conn,
+            default_timeout=_settings.rq_job_timeout,
+        )
+        QUEUE_LENGTH_GAUGE.set(len(q))
+    except Exception as e:
+        logger.warning("메트릭 게이지 업데이트 실패 (queue_length): %s", e)
+        QUEUE_LENGTH_GAUGE.set(0)
+
+
+_instrumentator = Instrumentator(
+    excluded_handlers=["/metrics", "/health", "/health/ready"],
+).instrument(app)
+
+
+@app.get("/metrics", include_in_schema=True)
+def metrics() -> Response:
+    """Prometheus 메트릭 엔드포인트."""
+    _update_job_gauges()
+    return Response(
+        content=generate_latest(),
+        media_type="text/plain; version=0.0.4; charset=utf-8",
+    )
+
 
 OUTPUT_BASE_DIR = _settings.output_base_dir
 STATIC_DIR = Path(__file__).resolve().parent.parent / "viewer" / "dist"

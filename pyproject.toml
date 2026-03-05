@@ -19,6 +19,7 @@ dependencies = [
     "python-multipart>=0.0.5",
     "redis>=5.0",
     "rq>=1.16",
+    "prometheus-fastapi-instrumentator>=7.0",
     "structlog>=24.1",
 ]
 
