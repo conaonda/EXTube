@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import datetime
 import json
 import re
 import time
@@ -9,6 +10,7 @@ from pathlib import Path
 from typing import Any
 
 import redis
+from rq import Queue
 
 from src.api.config import get_settings
 from src.api.db import JobStore
@@ -260,8 +262,6 @@ def _handle_pipeline_error(
         )
 
         # 지수 백오프 대기 후 재시도 큐잉
-        from rq import Queue
-
         q = Queue(
             _settings.rq_queue_name,
             connection=redis_conn,
@@ -271,7 +271,7 @@ def _handle_pipeline_error(
         # Job의 원래 파라미터를 DB에서 복원하여 재큐잉
         if job:
             q.enqueue_in(
-                time_delta=__import__("datetime").timedelta(seconds=delay),
+                time_delta=datetime.timedelta(seconds=delay),
                 f=run_pipeline,
                 job_id=job_id,
                 url=job["url"],
@@ -288,9 +288,7 @@ def _handle_pipeline_error(
             retryable=is_retryable_error(error),
         )
         job_store.update(job_id, status="failed", error=str(error))
-        _publish_progress(
-            redis_conn, job_id, {"status": "failed", "error": str(error)}
-        )
+        _publish_progress(redis_conn, job_id, {"status": "failed", "error": str(error)})
 
 
 def _validate_job_path(job_id: str, output_base_dir: Path) -> Path:

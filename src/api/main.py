@@ -416,7 +416,7 @@ def retry_job(
     """실패한 작업을 수동으로 재시도한다."""
     job = _get_user_job(job_id, current_user)
 
-    if job["status"] not in (JobStatus.failed, "failed"):
+    if job["status"] != JobStatus.failed:
         raise HTTPException(
             status_code=409,
             detail="실패한 작업만 재시도할 수 있습니다",
