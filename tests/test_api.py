@@ -356,6 +356,9 @@ class TestListJobs:
         data = resp.json()
         assert data["items"] == []
         assert data["total"] == 0
+        assert data["page"] == 1
+        assert data["per_page"] == 20
+        assert data["total_pages"] == 1
 
     def test_list_all_jobs(self):
         """모든 Job 목록을 반환한다."""
@@ -384,14 +387,39 @@ class TestListJobs:
         headers = _get_auth_headers()
         for i in range(5):
             _insert_job(f"aabbccddee{i:02d}", status=JobStatus.completed)
-        resp = client.get("/api/jobs?limit=2&offset=0", headers=headers)
+        resp = client.get("/api/jobs?per_page=2&page=1", headers=headers)
         data = resp.json()
         assert data["total"] == 5
         assert len(data["items"]) == 2
+        assert data["page"] == 1
+        assert data["per_page"] == 2
+        assert data["total_pages"] == 3
 
-        resp2 = client.get("/api/jobs?limit=2&offset=4", headers=headers)
+        resp2 = client.get("/api/jobs?per_page=2&page=3", headers=headers)
         data2 = resp2.json()
         assert len(data2["items"]) == 1
+
+    def test_sort_by_status_asc(self):
+        """상태 기준 오름차순 정렬이 동작한다."""
+        headers = _get_auth_headers()
+        _insert_job("aabbccddee06", status=JobStatus.processing)
+        _insert_job("aabbccddee07", status=JobStatus.completed)
+        resp = client.get("/api/jobs?sort_by=status&order=asc", headers=headers)
+        data = resp.json()
+        assert data["items"][0]["status"] == "completed"
+        assert data["items"][1]["status"] == "processing"
+
+    def test_invalid_sort_by(self):
+        """잘못된 sort_by 값은 422를 반환한다."""
+        headers = _get_auth_headers()
+        resp = client.get("/api/jobs?sort_by=invalid", headers=headers)
+        assert resp.status_code == 422
+
+    def test_invalid_order(self):
+        """잘못된 order 값은 422를 반환한다."""
+        headers = _get_auth_headers()
+        resp = client.get("/api/jobs?order=invalid", headers=headers)
+        assert resp.status_code == 422
 
     def test_invalid_status(self):
         """잘못된 상태 값은 422를 반환한다."""
