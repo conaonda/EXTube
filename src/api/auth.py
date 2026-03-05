@@ -2,15 +2,17 @@
 
 from __future__ import annotations
 
+import re
 import time
 import uuid
+from collections import defaultdict
 from datetime import UTC, datetime, timedelta
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
 from jose import JWTError, jwt
 from passlib.context import CryptContext
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 from src.api.config import get_settings
 from src.api.db import JobStore
@@ -23,6 +25,36 @@ router = APIRouter(prefix="/auth", tags=["auth"])
 
 # 모듈 수준 참조 — main.py에서 set_job_store()로 주입
 _job_store: JobStore | None = None
+
+# 로그인 실패 추적: username -> (실패 횟수, 마지막 실패 시각)
+_login_attempts: dict[str, tuple[int, float]] = defaultdict(lambda: (0, 0.0))
+
+
+def _check_login_lockout(username: str) -> None:
+    """로그인 잠금 상태를 확인한다."""
+    settings = get_settings()
+    count, last_fail = _login_attempts[username]
+    if count >= settings.max_login_attempts:
+        elapsed = time.time() - last_fail
+        if elapsed < settings.login_lockout_seconds:
+            remaining = int(settings.login_lockout_seconds - elapsed)
+            raise HTTPException(
+                status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+                detail=f"로그인 시도 횟수 초과. {remaining}초 후 다시 시도하세요.",
+            )
+        # 잠금 시간 경과 시 초기화
+        _login_attempts[username] = (0, 0.0)
+
+
+def _record_login_failure(username: str) -> None:
+    """로그인 실패를 기록한다."""
+    count, _ = _login_attempts[username]
+    _login_attempts[username] = (count + 1, time.time())
+
+
+def _clear_login_attempts(username: str) -> None:
+    """로그인 성공 시 실패 기록을 초기화한다."""
+    _login_attempts.pop(username, None)
 
 
 def set_job_store(store: JobStore) -> None:
@@ -38,9 +70,25 @@ def _get_store() -> JobStore:
 # --- Pydantic 스키마 ---
 
 
+_PASSWORD_PATTERN = re.compile(
+    r"^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[!@#$%^&*()_+\-=\[\]{};':\"\\|,.<>/?`~]).{8,}$"
+)
+
+
 class UserRegister(BaseModel):
     username: str = Field(min_length=3, max_length=32, pattern=r"^[a-zA-Z0-9_]+$")
-    password: str = Field(min_length=6, max_length=128)
+    password: str = Field(min_length=8, max_length=128)
+
+    @field_validator("password")
+    @classmethod
+    def validate_password_strength(cls, v: str) -> str:
+        if not _PASSWORD_PATTERN.match(v):
+            raise ValueError(
+                "비밀번호는 최소 8자이며, "
+                "대문자·소문자·숫자·특수문자를 "
+                "각각 1개 이상 포함해야 합니다"
+            )
+        return v
 
 
 class UserResponse(BaseModel):
@@ -169,14 +217,19 @@ def register(body: UserRegister) -> UserResponse:
 @router.post("/login", response_model=TokenResponse, summary="로그인")
 def login(form: OAuth2PasswordRequestForm = Depends()) -> TokenResponse:
     """사용자명과 비밀번호로 로그인하고 JWT access/refresh 토큰을 발급한다."""
+    _check_login_lockout(form.username)
+
     store = _get_store()
     user = store.users.get_by_username(form.username)
     if user is None or not pwd_context.verify(form.password, user["hashed_password"]):
+        _record_login_failure(form.username)
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="잘못된 사용자명 또는 비밀번호입니다",
             headers={"WWW-Authenticate": "Bearer"},
         )
+
+    _clear_login_attempts(form.username)
 
     settings = get_settings()
     access_token = _create_access_token(user["id"], user["username"])
