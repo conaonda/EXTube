@@ -1,19 +1,22 @@
 import { act, fireEvent, render, screen } from '@testing-library/react'
+import { useEffect } from 'react'
 import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest'
 import { ToastProvider } from '../Toast'
 import { useToast } from '../../hooks/useToast'
 
 // addToast를 외부에서 직접 호출할 수 있도록 ref 방식 사용
-let _addToast: ReturnType<typeof useToast>['addToast'] | undefined
+const addToastRef: { current: ReturnType<typeof useToast>['addToast'] | undefined } = { current: undefined }
 
 function ToastTrigger() {
   const { addToast } = useToast()
-  _addToast = addToast
+  useEffect(() => {
+    addToastRef.current = addToast
+  }, [addToast])
   return null
 }
 
 function renderWithToast() {
-  _addToast = undefined
+  addToastRef.current = undefined
   return render(
     <ToastProvider>
       <ToastTrigger />
@@ -23,7 +26,7 @@ function renderWithToast() {
 
 function addToast(...args: Parameters<ReturnType<typeof useToast>['addToast']>) {
   act(() => {
-    _addToast!(...args)
+    addToastRef.current!(...args)
   })
 }
 
