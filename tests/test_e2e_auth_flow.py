@@ -124,9 +124,7 @@ class TestFullAuthFlow:
         )
         assert refresh.status_code == 200
         new_tokens = refresh.json()
-        new_headers = {
-            "Authorization": f"Bearer {new_tokens['access_token']}"
-        }
+        new_headers = {"Authorization": f"Bearer {new_tokens['access_token']}"}
 
         # 새 토큰으로 Job 접근
         get = client.get(f"/api/jobs/{job_id}", headers=new_headers)
@@ -195,9 +193,7 @@ class TestInvalidTokenScenarios:
         headers = {"Authorization": f"Bearer {token}"}
 
         # 사용자 직접 삭제
-        _job_store._conn.execute(
-            "DELETE FROM users WHERE username = 'deluser'"
-        )
+        _job_store._conn.execute("DELETE FROM users WHERE username = 'deluser'")
         _job_store._conn.commit()
 
         resp = client.get("/api/jobs", headers=headers)
@@ -223,9 +219,7 @@ class TestStreamAndSSEWithAuth:
             "/auth/login",
             data={"username": "sseuser", "password": "pass123456"},
         )
-        headers = {
-            "Authorization": f"Bearer {login.json()['access_token']}"
-        }
+        headers = {"Authorization": f"Bearer {login.json()['access_token']}"}
         create = client.post(
             "/api/jobs",
             json={"url": "https://youtu.be/dQw4w9WgXcQ"},
@@ -239,9 +233,7 @@ class TestStreamAndSSEWithAuth:
             result={"num_points3d": 10},
         )
 
-        resp = client.get(
-            f"/api/jobs/{job_id}/stream", headers=headers
-        )
+        resp = client.get(f"/api/jobs/{job_id}/stream", headers=headers)
         assert resp.status_code == 200
         assert "completed" in resp.text
 
@@ -261,9 +253,7 @@ class TestCrossUserAccess:
             "/auth/login",
             data={"username": "alice", "password": "alicepass1"},
         )
-        headers_a = {
-            "Authorization": f"Bearer {login_a.json()['access_token']}"
-        }
+        headers_a = {"Authorization": f"Bearer {login_a.json()['access_token']}"}
 
         # 사용자 B 등록 + 로그인
         client.post(
@@ -274,9 +264,7 @@ class TestCrossUserAccess:
             "/auth/login",
             data={"username": "bob123", "password": "bobpass123"},
         )
-        headers_b = {
-            "Authorization": f"Bearer {login_b.json()['access_token']}"
-        }
+        headers_b = {"Authorization": f"Bearer {login_b.json()['access_token']}"}
 
         # Alice가 Job 생성
         create = client.post(
@@ -287,21 +275,18 @@ class TestCrossUserAccess:
         job_id = create.json()["id"]
 
         # Bob이 Alice의 Job에 접근 시도
-        assert client.get(
-            f"/api/jobs/{job_id}", headers=headers_b
-        ).status_code == 403
-        assert client.delete(
-            f"/api/jobs/{job_id}", headers=headers_b
-        ).status_code == 403
-        assert client.get(
-            f"/api/jobs/{job_id}/stream", headers=headers_b
-        ).status_code == 403
+        assert client.get(f"/api/jobs/{job_id}", headers=headers_b).status_code == 403
+        assert (
+            client.delete(f"/api/jobs/{job_id}", headers=headers_b).status_code == 403
+        )
+        assert (
+            client.get(f"/api/jobs/{job_id}/stream", headers=headers_b).status_code
+            == 403
+        )
 
         # Bob의 Job 목록에는 Alice의 Job이 없음
         bob_jobs = client.get("/api/jobs", headers=headers_b)
         assert bob_jobs.json()["total"] == 0
 
         # Alice는 자신의 Job에 접근 가능
-        assert client.get(
-            f"/api/jobs/{job_id}", headers=headers_a
-        ).status_code == 200
+        assert client.get(f"/api/jobs/{job_id}", headers=headers_a).status_code == 200
