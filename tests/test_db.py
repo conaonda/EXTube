@@ -60,6 +60,15 @@ class TestJobStore:
         assert store.get("abc123def456") is None
         assert not job_dir.exists()
 
+    def test_find_completed_by_url_filters_by_user(self, store):
+        url = "https://youtu.be/abc"
+        store.create("aaa111bbb222", "completed", url, user_id="user_a")
+        store.create("ccc333ddd444", "completed", url, user_id="user_b")
+        result = store.find_completed_by_url(url, "user_a")
+        assert result is not None
+        assert result["id"] == "aaa111bbb222"
+        assert store.find_completed_by_url(url, "user_c") is None
+
     def test_cleanup_keeps_recent(self, store, tmp_path):
         store.create("abc123def456", "pending", "https://youtu.be/abc")
         deleted = store.cleanup_expired(tmp_path, ttl=86400)
