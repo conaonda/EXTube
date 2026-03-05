@@ -428,6 +428,79 @@ def get_potree_file(job_id: str, file_path: str) -> FileResponse:
     return FileResponse(path=str(target), media_type=media_type)
 
 
+@app.get("/api/jobs/{job_id}/files")
+def list_job_files(job_id: str) -> dict[str, Any]:
+    """완료된 Job의 결과 디렉토리 내 파일 목록을 반환한다."""
+    job = _job_store.get(job_id)
+    if job is None:
+        raise HTTPException(status_code=404, detail="작업을 찾을 수 없습니다")
+
+    if job["status"] != JobStatus.completed:
+        raise HTTPException(
+            status_code=400,
+            detail=f"작업이 완료되지 않았습니다 (상태: {job['status']})",
+        )
+
+    try:
+        job_dir = _validate_job_path(job_id)
+    except ValueError:
+        raise HTTPException(status_code=404, detail="작업을 찾을 수 없습니다")
+
+    result_dir = job_dir / "reconstruction"
+    if not result_dir.is_dir():
+        return {"job_id": job_id, "files": []}
+
+    files = []
+    base_resolved = result_dir.resolve()
+    for f in sorted(result_dir.rglob("*")):
+        if f.is_file() and str(f.resolve()).startswith(str(base_resolved)):
+            rel = f.relative_to(result_dir)
+            files.append(
+                {
+                    "name": str(rel),
+                    "size": f.stat().st_size,
+                }
+            )
+
+    return {"job_id": job_id, "files": files}
+
+
+@app.get("/api/jobs/{job_id}/download/{file_path:path}")
+def download_job_file(job_id: str, file_path: str) -> FileResponse:
+    """완료된 Job의 결과 파일을 다운로드한다."""
+    job = _job_store.get(job_id)
+    if job is None:
+        raise HTTPException(status_code=404, detail="작업을 찾을 수 없습니다")
+
+    if job["status"] != JobStatus.completed:
+        raise HTTPException(
+            status_code=400,
+            detail=f"작업이 완료되지 않았습니다 (상태: {job['status']})",
+        )
+
+    try:
+        job_dir = _validate_job_path(job_id)
+    except ValueError:
+        raise HTTPException(status_code=404, detail="작업을 찾을 수 없습니다")
+
+    result_dir = job_dir / "reconstruction"
+    target = (result_dir / file_path).resolve()
+    base_resolved = result_dir.resolve()
+
+    if not str(target).startswith(str(base_resolved)):
+        raise HTTPException(status_code=400, detail="잘못된 파일 경로입니다")
+
+    if not target.is_file():
+        raise HTTPException(status_code=404, detail="파일을 찾을 수 없습니다")
+
+    return FileResponse(
+        path=str(target),
+        media_type="application/octet-stream",
+        filename=target.name,
+        headers={"Content-Disposition": f'attachment; filename="{target.name}"'},
+    )
+
+
 def mount_static_files() -> None:
     """프론트엔드 빌드 결과물을 정적 파일로 서빙한다."""
     if STATIC_DIR.is_dir():
