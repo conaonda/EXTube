@@ -20,6 +20,12 @@ services:
       - EXTUBE_REDIS_URL=redis://redis:6379
     depends_on:
       - redis
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
 
   rq-worker:
     build:
