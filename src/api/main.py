@@ -7,6 +7,7 @@ import atexit
 import json
 import logging
 import re
+import shutil
 import time
 import uuid
 from collections.abc import AsyncIterator
@@ -22,6 +23,7 @@ from fastapi.responses import FileResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
+from src.api.config import get_settings
 from src.api.db import JobStore
 from src.downloader import validate_youtube_url
 from src.extractor import extract_and_filter
@@ -29,35 +31,36 @@ from src.reconstruction import reconstruct
 
 logger = logging.getLogger(__name__)
 
+_settings = get_settings()
+
 
 @asynccontextmanager
 async def _lifespan(application: FastAPI) -> AsyncIterator[None]:
     """서버 시작 시 만료된 Job을 정리한다."""
-    deleted = _job_store.cleanup_expired(OUTPUT_BASE_DIR)
+    deleted = _job_store.cleanup_expired(
+        _settings.output_base_dir, ttl=_settings.job_ttl_seconds
+    )
     if deleted:
         logger.info("만료된 Job %d개 정리됨", deleted)
     yield
 
 
-app = FastAPI(title="EXTube API", version="0.2.0", lifespan=_lifespan)
+app = FastAPI(title="EXTube API", version="0.3.0", lifespan=_lifespan)
 
-# CORS 설정 (개발 환경)
+# CORS 설정
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        "http://localhost:5173",
-        "http://localhost:3000",
-    ],
+    allow_origins=_settings.cors_origin_list,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-OUTPUT_BASE_DIR = Path("data/jobs")
+OUTPUT_BASE_DIR = _settings.output_base_dir
 STATIC_DIR = Path(__file__).resolve().parent.parent / "viewer" / "dist"
 
-_MAX_WORKERS = 4
-_SSE_TIMEOUT_SECONDS = 30 * 60  # 30분
+_MAX_WORKERS = _settings.max_workers
+_SSE_TIMEOUT_SECONDS = _settings.sse_timeout_seconds
 
 
 class JobStatus(StrEnum):
@@ -94,7 +97,7 @@ class JobResponse(BaseModel):
 
 
 # Job 저장소 (SQLite)
-_job_store = JobStore()
+_job_store = JobStore(db_path=_settings.db_path)
 
 # ThreadPoolExecutor로 동시 작업 수 제한
 _executor = ThreadPoolExecutor(max_workers=_MAX_WORKERS)
@@ -205,6 +208,41 @@ def _run_pipeline(job_id: str, params: JobCreate) -> None:
     except Exception as e:
         logger.exception("작업 %s 실패", job_id)
         _job_store.update(job_id, status=JobStatus.failed, error=str(e))
+
+
+# --- Health 엔드포인트 ---
+
+
+@app.get("/health")
+def health() -> dict[str, str]:
+    """기본 헬스체크 — 서버 생존 확인."""
+    return {"status": "ok"}
+
+
+@app.get("/health/ready")
+def health_ready() -> dict[str, Any]:
+    """준비 상태 확인 — DB 연결 및 COLMAP 바이너리 존재 여부."""
+    checks: dict[str, Any] = {}
+
+    # DB 연결 확인
+    try:
+        _job_store.ping()
+        checks["database"] = "ok"
+    except Exception as e:
+        checks["database"] = f"error: {e}"
+
+    # COLMAP 바이너리 확인
+    colmap_path = shutil.which("colmap")
+    checks["colmap"] = "ok" if colmap_path else "not found"
+
+    all_ok = all(v == "ok" for v in checks.values())
+    if not all_ok:
+        raise HTTPException(status_code=503, detail=checks)
+
+    return {"status": "ready", "checks": checks}
+
+
+# --- Job 엔드포인트 ---
 
 
 @app.post("/api/jobs", response_model=JobResponse, status_code=201)

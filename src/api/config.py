@@ -1,0 +1,35 @@
+"""pydantic-settings 기반 애플리케이션 설정."""
+
+from __future__ import annotations
+
+from functools import lru_cache
+from pathlib import Path
+
+from pydantic_settings import BaseSettings, SettingsConfigDict
+
+
+class Settings(BaseSettings):
+    """환경변수 / .env 파일로 주입 가능한 설정."""
+
+    model_config = SettingsConfigDict(env_prefix="EXTUBE_", env_file=".env")
+
+    # 작업 관련
+    max_workers: int = 4
+    job_ttl_seconds: int = 24 * 60 * 60  # 24시간
+    sse_timeout_seconds: int = 30 * 60  # 30분
+
+    # 경로
+    output_base_dir: Path = Path("data/jobs")
+    db_path: Path = Path("data/jobs.db")
+
+    # CORS (쉼표 구분 문자열)
+    cors_origins: str = "http://localhost:5173,http://localhost:3000"
+
+    @property
+    def cors_origin_list(self) -> list[str]:
+        return [o.strip() for o in self.cors_origins.split(",") if o.strip()]
+
+
+@lru_cache
+def get_settings() -> Settings:
+    return Settings()
