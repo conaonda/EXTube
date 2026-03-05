@@ -62,9 +62,7 @@ class RefreshRequest(BaseModel):
 
 def _create_access_token(user_id: str, username: str) -> str:
     settings = get_settings()
-    expire = datetime.now(UTC) + timedelta(
-        minutes=settings.access_token_expire_minutes
-    )
+    expire = datetime.now(UTC) + timedelta(minutes=settings.access_token_expire_minutes)
     payload = {
         "sub": user_id,
         "username": username,
@@ -72,7 +70,9 @@ def _create_access_token(user_id: str, username: str) -> str:
         "type": "access",
     }
     return jwt.encode(
-        payload, settings.jwt_secret_key, algorithm=settings.jwt_algorithm,
+        payload,
+        settings.jwt_secret_key,
+        algorithm=settings.jwt_algorithm,
     )
 
 
@@ -80,9 +80,7 @@ def _create_refresh_token(user_id: str) -> tuple[str, str]:
     """refresh token을 생성하고 (jwt_string, token_id)를 반환한다."""
     settings = get_settings()
     token_id = uuid.uuid4().hex
-    expire = datetime.now(UTC) + timedelta(
-        days=settings.refresh_token_expire_days
-    )
+    expire = datetime.now(UTC) + timedelta(days=settings.refresh_token_expire_days)
     payload = {
         "sub": user_id,
         "jti": token_id,
@@ -185,7 +183,8 @@ def refresh(body: RefreshRequest) -> TokenResponse:
     stored = store.refresh_tokens.get(token_id)
     if stored is None or stored["expires_at"] < time.time():
         raise HTTPException(
-            status_code=401, detail="토큰이 만료되었거나 무효화되었습니다",
+            status_code=401,
+            detail="토큰이 만료되었거나 무효화되었습니다",
         )
 
     # 기존 refresh token 무효화 (rotation)

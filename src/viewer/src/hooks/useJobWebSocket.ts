@@ -27,7 +27,10 @@ export function useJobWebSocket({
   const wsRef = useRef<WebSocket | null>(null)
   const reconnectTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const onMessageRef = useRef(onMessage)
-  onMessageRef.current = onMessage
+
+  useEffect(() => {
+    onMessageRef.current = onMessage
+  }, [onMessage])
 
   const cleanup = useCallback(() => {
     if (reconnectTimer.current) {

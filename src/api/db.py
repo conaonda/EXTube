@@ -47,7 +47,10 @@ class UserStore:
         self._conn.commit()
 
     def create(
-        self, user_id: str, username: str, hashed_password: str,
+        self,
+        user_id: str,
+        username: str,
+        hashed_password: str,
     ) -> dict[str, Any]:
         user = {
             "id": user_id,
@@ -179,7 +182,11 @@ class JobStore:
         rows = self._conn.execute("PRAGMA table_info(jobs)").fetchall()
         columns = {row[1] for row in rows}
         for col in (
-            "progress", "dense_ply_path", "gs_splat_path", "potree_dir", "user_id",
+            "progress",
+            "dense_ply_path",
+            "gs_splat_path",
+            "potree_dir",
+            "user_id",
         ):
             if col not in columns:
                 self._conn.execute(f"ALTER TABLE jobs ADD COLUMN {col} TEXT")
@@ -190,7 +197,11 @@ class JobStore:
         self._conn.commit()
 
     def create(
-        self, job_id: str, status: str, url: str, user_id: str | None = None,
+        self,
+        job_id: str,
+        status: str,
+        url: str,
+        user_id: str | None = None,
     ) -> dict[str, Any]:
         job = {
             "id": job_id,

@@ -69,28 +69,6 @@ export default function App() {
 
   useJobWebSocket({ jobId: wsJobId, onMessage: onWsMessage })
 
-  // Fallback polling for when WebSocket is not available
-  const startPolling = useCallback(
-    (id: string) => {
-      pollingRef.current = setInterval(async () => {
-        try {
-          const updated = await getJob(id)
-          setJob(updated)
-          if (updated.status === 'completed') {
-            stopPolling()
-            handleJobCompleted(updated)
-          } else if (updated.status === 'failed') {
-            stopPolling()
-          }
-        } catch {
-          stopPolling()
-          setError('작업 상태 조회 실패')
-        }
-      }, 2000)
-    },
-    [stopPolling, handleJobCompleted],
-  )
-
   const loadJob = useCallback(
     async (id: string) => {
       setError(null)

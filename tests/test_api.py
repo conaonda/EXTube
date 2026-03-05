@@ -65,7 +65,10 @@ def _insert_job(job_id: str, **fields) -> None:
     }
     defaults.update(fields)
     _job_store.create(
-        job_id, defaults["status"], defaults["url"], user_id=_TEST_USER_ID,
+        job_id,
+        defaults["status"],
+        defaults["url"],
+        user_id=_TEST_USER_ID,
     )
     update_fields = {}
     if defaults["error"] is not None:
@@ -499,7 +502,8 @@ class TestGetPotreeFile:
         _insert_job("aabbccddeea4", status=JobStatus.completed)
         _job_store.update("aabbccddeea4", potree_dir=str(potree_dir))
         resp = client.get(
-            "/api/jobs/aabbccddeea4/potree/../../etc/passwd", headers=headers,
+            "/api/jobs/aabbccddeea4/potree/../../etc/passwd",
+            headers=headers,
         )
         assert resp.status_code in (400, 404)
 
@@ -633,7 +637,8 @@ class TestDownloadJobFile:
         headers = _get_auth_headers()
         _insert_job("aabbccddeec1", status=JobStatus.processing)
         resp = client.get(
-            "/api/jobs/aabbccddeec1/download/points.ply", headers=headers,
+            "/api/jobs/aabbccddeec1/download/points.ply",
+            headers=headers,
         )
         assert resp.status_code == 400
 
@@ -650,7 +655,8 @@ class TestDownloadJobFile:
 
         _insert_job("aabbccddeec2", status=JobStatus.completed)
         resp = client.get(
-            "/api/jobs/aabbccddeec2/download/points.ply", headers=headers,
+            "/api/jobs/aabbccddeec2/download/points.ply",
+            headers=headers,
         )
         assert resp.status_code == 200
         assert resp.content == b"ply binary data"
@@ -668,7 +674,8 @@ class TestDownloadJobFile:
 
         _insert_job("aabbccddeec3", status=JobStatus.completed)
         resp = client.get(
-            "/api/jobs/aabbccddeec3/download/nonexistent.ply", headers=headers,
+            "/api/jobs/aabbccddeec3/download/nonexistent.ply",
+            headers=headers,
         )
         assert resp.status_code == 404
 
@@ -684,7 +691,8 @@ class TestDownloadJobFile:
 
         _insert_job("aabbccddeec4", status=JobStatus.completed)
         resp = client.get(
-            "/api/jobs/aabbccddeec4/download/../../etc/passwd", headers=headers,
+            "/api/jobs/aabbccddeec4/download/../../etc/passwd",
+            headers=headers,
         )
         assert resp.status_code in (400, 404)
 
@@ -702,7 +710,8 @@ class TestDownloadJobFile:
 
         _insert_job("aabbccddeec5", status=JobStatus.completed)
         resp = client.get(
-            "/api/jobs/aabbccddeec5/download/sparse/cameras.bin", headers=headers,
+            "/api/jobs/aabbccddeec5/download/sparse/cameras.bin",
+            headers=headers,
         )
         assert resp.status_code == 200
         assert resp.content == b"camera binary"

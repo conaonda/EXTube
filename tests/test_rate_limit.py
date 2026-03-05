@@ -34,7 +34,8 @@ def _get_auth_headers() -> dict[str, str]:
     _job_store._conn.commit()
     _job_store.users.create("rl_test_user", "rltestuser", pwd.hash("testpass123"))
     resp = client.post(
-        "/auth/login", data={"username": "rltestuser", "password": "testpass123"},
+        "/auth/login",
+        data={"username": "rltestuser", "password": "testpass123"},
     )
     return {"Authorization": f"Bearer {resp.json()['access_token']}"}
 

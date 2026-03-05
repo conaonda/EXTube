@@ -293,7 +293,8 @@ def _build_response(job: dict[str, Any]) -> JobResponse:
 
 @app.post("/api/jobs", response_model=JobResponse, status_code=201)
 def create_job(
-    body: JobCreate, current_user: dict = Depends(get_current_user),
+    body: JobCreate,
+    current_user: dict = Depends(get_current_user),
 ) -> JobResponse:
     """복원 작업을 생성한다."""
     if not validate_youtube_url(body.url):
@@ -354,7 +355,8 @@ def _get_user_job(job_id: str, current_user: dict) -> dict:
 
 @app.get("/api/jobs/{job_id}", response_model=JobResponse)
 def get_job(
-    job_id: str, current_user: dict = Depends(get_current_user),
+    job_id: str,
+    current_user: dict = Depends(get_current_user),
 ) -> JobResponse:
     """작업 상태를 조회한다."""
     job = _get_user_job(job_id, current_user)
@@ -363,7 +365,8 @@ def get_job(
 
 @app.delete("/api/jobs/{job_id}", status_code=204)
 def delete_job(
-    job_id: str, current_user: dict = Depends(get_current_user),
+    job_id: str,
+    current_user: dict = Depends(get_current_user),
 ) -> None:
     """작업을 삭제하고 관련 파일을 정리한다."""
     job = _get_user_job(job_id, current_user)
@@ -387,7 +390,8 @@ def delete_job(
 
 @app.get("/api/jobs/{job_id}/stream")
 async def stream_job(
-    job_id: str, current_user: dict = Depends(get_current_user),
+    job_id: str,
+    current_user: dict = Depends(get_current_user),
 ) -> StreamingResponse:
     """SSE로 작업 진행률을 실시간 스트리밍한다."""
     _get_user_job(job_id, current_user)
@@ -444,7 +448,8 @@ async def stream_job(
 
 @app.get("/api/jobs/{job_id}/result")
 def get_job_result(
-    job_id: str, current_user: dict = Depends(get_current_user),
+    job_id: str,
+    current_user: dict = Depends(get_current_user),
 ) -> FileResponse:
     """복원 결과물(PLY)을 다운로드한다."""
     job = _get_user_job(job_id, current_user)
@@ -485,7 +490,8 @@ def get_job_result(
 
 @app.get("/api/jobs/{job_id}/splat")
 def get_splat_file(
-    job_id: str, current_user: dict = Depends(get_current_user),
+    job_id: str,
+    current_user: dict = Depends(get_current_user),
 ) -> FileResponse:
     """Gaussian Splatting .ply/.splat 파일을 서빙한다."""
     job = _get_user_job(job_id, current_user)
@@ -523,7 +529,9 @@ def get_splat_file(
 
 @app.get("/api/jobs/{job_id}/potree/{file_path:path}")
 def get_potree_file(
-    job_id: str, file_path: str, current_user: dict = Depends(get_current_user),
+    job_id: str,
+    file_path: str,
+    current_user: dict = Depends(get_current_user),
 ) -> FileResponse:
     """Potree octree 파일을 서빙한다."""
     job = _get_user_job(job_id, current_user)
@@ -562,7 +570,8 @@ def get_potree_file(
 
 @app.get("/api/jobs/{job_id}/files")
 def list_job_files(
-    job_id: str, current_user: dict = Depends(get_current_user),
+    job_id: str,
+    current_user: dict = Depends(get_current_user),
 ) -> dict[str, Any]:
     """완료된 Job의 결과 디렉토리 내 파일 목록을 반환한다."""
     job = _get_user_job(job_id, current_user)
@@ -599,7 +608,9 @@ def list_job_files(
 
 @app.get("/api/jobs/{job_id}/download/{file_path:path}")
 def download_job_file(
-    job_id: str, file_path: str, current_user: dict = Depends(get_current_user),
+    job_id: str,
+    file_path: str,
+    current_user: dict = Depends(get_current_user),
 ) -> FileResponse:
     """완료된 Job의 결과 파일을 다운로드한다."""
     job = _get_user_job(job_id, current_user)
