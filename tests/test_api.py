@@ -332,3 +332,126 @@ class TestStreamJob:
         resp = client.get("/api/jobs/aabbccddeef8/stream")
         events = _parse_sse_events(resp)
         assert any(e.get("status") == "timeout" for e in events)
+
+
+class TestListJobFiles:
+    """GET /api/jobs/{id}/files 테스트."""
+
+    def test_not_found(self):
+        """존재하지 않는 작업은 404를 반환한다."""
+        resp = client.get("/api/jobs/nonexistent/files")
+        assert resp.status_code == 404
+
+    def test_not_completed(self):
+        """완료되지 않은 작업은 400을 반환한다."""
+        _insert_job("aabbccddeeb1", status=JobStatus.processing)
+        resp = client.get("/api/jobs/aabbccddeeb1/files")
+        assert resp.status_code == 400
+
+    @patch("src.api.main.OUTPUT_BASE_DIR")
+    def test_list_files(self, mock_base_dir, tmp_path):
+        """결과 파일 목록을 반환한다."""
+        mock_base_dir.resolve.return_value = tmp_path.resolve()
+        job_dir = tmp_path / "aabbccddeeb2"
+        recon_dir = job_dir / "reconstruction"
+        recon_dir.mkdir(parents=True)
+        (recon_dir / "points.ply").write_text("ply data")
+        (recon_dir / "cameras.txt").write_text("camera data")
+
+        # _validate_job_path uses OUTPUT_BASE_DIR directly
+        mock_base_dir.__truediv__ = lambda self, x: tmp_path / x
+
+        _insert_job("aabbccddeeb2", status=JobStatus.completed)
+        resp = client.get("/api/jobs/aabbccddeeb2/files")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["job_id"] == "aabbccddeeb2"
+        names = [f["name"] for f in data["files"]]
+        assert "points.ply" in names
+        assert "cameras.txt" in names
+
+    @patch("src.api.main.OUTPUT_BASE_DIR")
+    def test_no_reconstruction_dir(self, mock_base_dir, tmp_path):
+        """reconstruction 디렉토리가 없으면 빈 목록을 반환한다."""
+        mock_base_dir.resolve.return_value = tmp_path.resolve()
+        job_dir = tmp_path / "aabbccddeeb3"
+        job_dir.mkdir(parents=True)
+        mock_base_dir.__truediv__ = lambda self, x: tmp_path / x
+
+        _insert_job("aabbccddeeb3", status=JobStatus.completed)
+        resp = client.get("/api/jobs/aabbccddeeb3/files")
+        assert resp.status_code == 200
+        assert resp.json()["files"] == []
+
+
+class TestDownloadJobFile:
+    """GET /api/jobs/{id}/download/{file_path} 테스트."""
+
+    def test_not_found(self):
+        """존재하지 않는 작업은 404를 반환한다."""
+        resp = client.get("/api/jobs/nonexistent/download/points.ply")
+        assert resp.status_code == 404
+
+    def test_not_completed(self):
+        """완료되지 않은 작업은 400을 반환한다."""
+        _insert_job("aabbccddeec1", status=JobStatus.processing)
+        resp = client.get("/api/jobs/aabbccddeec1/download/points.ply")
+        assert resp.status_code == 400
+
+    @patch("src.api.main.OUTPUT_BASE_DIR")
+    def test_download_file(self, mock_base_dir, tmp_path):
+        """결과 파일을 다운로드한다."""
+        mock_base_dir.resolve.return_value = tmp_path.resolve()
+        job_dir = tmp_path / "aabbccddeec2"
+        recon_dir = job_dir / "reconstruction"
+        recon_dir.mkdir(parents=True)
+        (recon_dir / "points.ply").write_bytes(b"ply binary data")
+        mock_base_dir.__truediv__ = lambda self, x: tmp_path / x
+
+        _insert_job("aabbccddeec2", status=JobStatus.completed)
+        resp = client.get("/api/jobs/aabbccddeec2/download/points.ply")
+        assert resp.status_code == 200
+        assert resp.content == b"ply binary data"
+        assert "attachment" in resp.headers.get("content-disposition", "")
+
+    @patch("src.api.main.OUTPUT_BASE_DIR")
+    def test_file_not_exists(self, mock_base_dir, tmp_path):
+        """존재하지 않는 파일은 404를 반환한다."""
+        mock_base_dir.resolve.return_value = tmp_path.resolve()
+        job_dir = tmp_path / "aabbccddeec3"
+        recon_dir = job_dir / "reconstruction"
+        recon_dir.mkdir(parents=True)
+        mock_base_dir.__truediv__ = lambda self, x: tmp_path / x
+
+        _insert_job("aabbccddeec3", status=JobStatus.completed)
+        resp = client.get("/api/jobs/aabbccddeec3/download/nonexistent.ply")
+        assert resp.status_code == 404
+
+    @patch("src.api.main.OUTPUT_BASE_DIR")
+    def test_path_traversal_blocked(self, mock_base_dir, tmp_path):
+        """경로 순회 공격이 차단된다."""
+        mock_base_dir.resolve.return_value = tmp_path.resolve()
+        job_dir = tmp_path / "aabbccddeec4"
+        recon_dir = job_dir / "reconstruction"
+        recon_dir.mkdir(parents=True)
+        mock_base_dir.__truediv__ = lambda self, x: tmp_path / x
+
+        _insert_job("aabbccddeec4", status=JobStatus.completed)
+        resp = client.get("/api/jobs/aabbccddeec4/download/../../etc/passwd")
+        assert resp.status_code in (400, 404)
+
+    @patch("src.api.main.OUTPUT_BASE_DIR")
+    def test_download_nested_file(self, mock_base_dir, tmp_path):
+        """하위 디렉토리의 파일도 다운로드할 수 있다."""
+        mock_base_dir.resolve.return_value = tmp_path.resolve()
+        job_dir = tmp_path / "aabbccddeec5"
+        recon_dir = job_dir / "reconstruction"
+        sub_dir = recon_dir / "sparse"
+        sub_dir.mkdir(parents=True)
+        (sub_dir / "cameras.bin").write_bytes(b"camera binary")
+        mock_base_dir.__truediv__ = lambda self, x: tmp_path / x
+
+        _insert_job("aabbccddeec5", status=JobStatus.completed)
+        resp = client.get("/api/jobs/aabbccddeec5/download/sparse/cameras.bin")
+        assert resp.status_code == 200
+        assert resp.content == b"camera binary"
