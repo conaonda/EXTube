@@ -88,7 +88,7 @@ class TestRateLimitMiddleware:
             for _ in range(5):
                 resp = client.post(
                     "/api/jobs",
-                    json={"url": "https://www.youtube.com/watch?v=dQw4w9WgXcQ"},
+                    json={"url": "https://www.youtube.com/watch?v=dQw4w9WgXcQ", "force_reprocess": True},
                     headers=headers,
                 )
                 assert resp.status_code == 201
@@ -97,7 +97,7 @@ class TestRateLimitMiddleware:
 
             resp = client.post(
                 "/api/jobs",
-                json={"url": "https://www.youtube.com/watch?v=dQw4w9WgXcQ"},
+                json={"url": "https://www.youtube.com/watch?v=dQw4w9WgXcQ", "force_reprocess": True},
                 headers=headers,
             )
             assert resp.status_code == 429

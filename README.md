@@ -13,24 +13,35 @@
              (yt-dlp)       (ffmpeg)     (COLMAP/3DGS)  (Three.js)
 ```
 
-## 설치 및 실행
+## Quick Start
 
-### Docker (CPU)
+### 1. 환경변수 설정
+
+```bash
+cp .env.example .env
+# .env 파일을 열어 EXTUBE_JWT_SECRET_KEY 등을 변경하세요
+```
+
+### 2. Docker로 실행 (개발)
 
 ```bash
 cd docker
 docker compose up --build
 ```
 
-### Docker (GPU)
-
-NVIDIA GPU와 [NVIDIA Container Toolkit](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/install-guide.html)이 필요합니다.
+### 3. Docker로 실행 (프로덕션)
 
 ```bash
-cd docker
-docker compose --profile gpu up --build app-gpu
+cp docker/.env.example docker/.env
+# docker/.env에서 REDIS_PASSWORD, DOMAIN 설정
+
+./scripts/deploy.sh          # CPU 모드
+./scripts/deploy.sh --gpu    # GPU 모드
 ```
 
+### 4. GPU 모드
+
+NVIDIA GPU와 [NVIDIA Container Toolkit](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/install-guide.html)이 필요합니다.
 GPU 모드에서는 COLMAP이 CUDA 가속으로 빌드되어 Dense MVS 등 GPU 의존 작업이 가능합니다.
 
 ### 로컬 개발
@@ -40,6 +51,8 @@ make dev        # 개발 의존성 포함 설치
 make lint       # 린트
 make test       # 테스트
 ```
+
+자세한 배포 가이드는 [docs/deployment.md](docs/deployment.md)를 참고하세요.
 
 ## 업무 스킴
 

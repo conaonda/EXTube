@@ -194,13 +194,13 @@ class TestJobConcurrencyLimit:
         """완료된 Job은 제한에 포함되지 않는다."""
         headers = _get_auth_headers()
         url = "https://www.youtube.com/watch?v=dQw4w9WgXcQ"
-        # 2개 생성 후 1개 완료
-        resp1 = client.post("/api/jobs", json={"url": url}, headers=headers)
-        client.post("/api/jobs", json={"url": url}, headers=headers)
+        # 2개 생성 후 1개 완료 (force_reprocess로 캐시 우회)
+        resp1 = client.post("/api/jobs", json={"url": url, "force_reprocess": True}, headers=headers)
+        client.post("/api/jobs", json={"url": url, "force_reprocess": True}, headers=headers)
         job_id = resp1.json()["id"]
         _job_store.update(job_id, status=JobStatus.completed)
         # 완료된 건 제외하므로 새 Job 생성 가능
-        resp = client.post("/api/jobs", json={"url": url}, headers=headers)
+        resp = client.post("/api/jobs", json={"url": url, "force_reprocess": True}, headers=headers)
         assert resp.status_code == 201
 
     @patch("src.api.main._enqueue_job")
@@ -232,6 +232,65 @@ class TestJobConcurrencyLimit:
         # 3번째 (pending 1 + processing 1 = 2) 거부
         resp = client.post("/api/jobs", json={"url": url}, headers=headers)
         assert resp.status_code == 429
+
+
+class TestDuplicateUrlPrevention:
+    """동일 URL 중복 처리 방지 테스트."""
+
+    @patch("src.api.main._enqueue_job")
+    @patch("src.api.main.fetch_video_metadata", return_value=_MOCK_METADATA)
+    def test_duplicate_url_returns_existing_job(self, mock_meta, mock_enqueue):
+        """동일 URL의 완료된 Job이 있으면 기존 결과를 반환한다."""
+        headers = _get_auth_headers()
+        url = "https://www.youtube.com/watch?v=dQw4w9WgXcQ"
+        _insert_job("aabbccddeef0", status=JobStatus.completed, url=url)
+        resp = client.post("/api/jobs", json={"url": url}, headers=headers)
+        assert resp.status_code == 200
+        assert resp.json()["id"] == "aabbccddeef0"
+        assert resp.json()["status"] == "completed"
+        mock_enqueue.assert_not_called()
+
+    @patch("src.api.main._enqueue_job")
+    @patch("src.api.main.fetch_video_metadata", return_value=_MOCK_METADATA)
+    def test_force_reprocess_creates_new_job(self, mock_meta, mock_enqueue):
+        """force_reprocess=true이면 기존 결과가 있어도 새 Job을 생성한다."""
+        headers = _get_auth_headers()
+        url = "https://www.youtube.com/watch?v=dQw4w9WgXcQ"
+        _insert_job("aabbccddeef0", status=JobStatus.completed, url=url)
+        resp = client.post(
+            "/api/jobs",
+            json={"url": url, "force_reprocess": True},
+            headers=headers,
+        )
+        assert resp.status_code == 201
+        assert resp.json()["id"] != "aabbccddeef0"
+        assert resp.json()["status"] == "pending"
+        mock_enqueue.assert_called_once()
+
+    @patch("src.api.main._enqueue_job")
+    @patch("src.api.main.fetch_video_metadata", return_value=_MOCK_METADATA)
+    def test_no_completed_job_creates_new(self, mock_meta, mock_enqueue):
+        """완료된 Job이 없으면 새 Job을 생성한다."""
+        headers = _get_auth_headers()
+        url = "https://www.youtube.com/watch?v=dQw4w9WgXcQ"
+        _insert_job("aabbccddeef0", status=JobStatus.failed, url=url, error="err")
+        resp = client.post("/api/jobs", json={"url": url}, headers=headers)
+        assert resp.status_code == 201
+        assert resp.json()["id"] != "aabbccddeef0"
+        mock_enqueue.assert_called_once()
+
+    @patch("src.api.main._enqueue_job")
+    @patch("src.api.main.fetch_video_metadata", return_value=_MOCK_METADATA)
+    def test_other_user_completed_job_not_returned(self, mock_meta, mock_enqueue):
+        """다른 유저의 완료된 Job은 반환하지 않는다."""
+        headers = _get_auth_headers()
+        url = "https://www.youtube.com/watch?v=dQw4w9WgXcQ"
+        # 다른 유저의 Job을 직접 삽입
+        _job_store.create("aabbccddeef0", "completed", url, user_id="other_user_id")
+        resp = client.post("/api/jobs", json={"url": url}, headers=headers)
+        assert resp.status_code == 201
+        assert resp.json()["id"] != "aabbccddeef0"
+        mock_enqueue.assert_called_once()
 
 
 class TestGetJob:
