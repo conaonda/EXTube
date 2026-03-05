@@ -7,6 +7,7 @@ interface ViewerControlsProps {
   onToggleBoundingBox: () => void
   onResetCamera: () => void
   pointCount: number | null
+  isPotree?: boolean
 }
 
 const BG_COLORS = [
@@ -24,6 +25,7 @@ export default function ViewerControls({
   onToggleBoundingBox,
   onResetCamera,
   pointCount,
+  isPotree = false,
 }: ViewerControlsProps) {
   return (
     <div
@@ -115,6 +117,7 @@ export default function ViewerControls({
       {pointCount !== null && (
         <div style={{ color: '#666', fontSize: '0.75rem' }}>
           포인트 수: {pointCount.toLocaleString()}
+          {isPotree && ' (LoD)'}
         </div>
       )}
     </div>

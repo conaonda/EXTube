@@ -2,16 +2,18 @@ import { Suspense, useCallback, useRef, useState } from 'react'
 import { Canvas } from '@react-three/fiber'
 import { OrbitControls } from '@react-three/drei'
 import PointCloud from './PointCloud'
+import PotreePointCloud from './PotreePointCloud'
 import ViewerControls from './ViewerControls'
 import type { OrbitControls as OrbitControlsImpl } from 'three-stdlib'
 
 interface ViewerCanvasProps {
   plyUrl: string | null
+  potreeUrl: string | null
 }
 
 const DEFAULT_CAMERA_POS: [number, number, number] = [3, 3, 3]
 
-export default function ViewerCanvas({ plyUrl }: ViewerCanvasProps) {
+export default function ViewerCanvas({ plyUrl, potreeUrl }: ViewerCanvasProps) {
   const [pointSize, setPointSize] = useState(0.02)
   const [bgColor, setBgColor] = useState('#000000')
   const [showBoundingBox, setShowBoundingBox] = useState(false)
@@ -35,6 +37,8 @@ export default function ViewerCanvas({ plyUrl }: ViewerCanvasProps) {
     [],
   )
 
+  const hasData = plyUrl || potreeUrl
+
   return (
     <>
       <Canvas
@@ -43,7 +47,13 @@ export default function ViewerCanvas({ plyUrl }: ViewerCanvasProps) {
       >
         <ambientLight intensity={0.5} />
         <directionalLight position={[5, 5, 5]} />
-        {plyUrl ? (
+        {potreeUrl ? (
+          <PotreePointCloud
+            url={potreeUrl}
+            pointSize={pointSize}
+            onLoad={handlePointCloudLoad}
+          />
+        ) : plyUrl ? (
           <Suspense fallback={null}>
             <PointCloud
               url={plyUrl}
@@ -61,7 +71,7 @@ export default function ViewerCanvas({ plyUrl }: ViewerCanvasProps) {
         <gridHelper args={[10, 10]} />
         <OrbitControls ref={controlsRef} />
       </Canvas>
-      {plyUrl && (
+      {hasData && (
         <ViewerControls
           pointSize={pointSize}
           onPointSizeChange={setPointSize}
@@ -71,6 +81,7 @@ export default function ViewerCanvas({ plyUrl }: ViewerCanvasProps) {
           onToggleBoundingBox={() => setShowBoundingBox((v) => !v)}
           onResetCamera={handleResetCamera}
           pointCount={pointCount}
+          isPotree={!!potreeUrl}
         />
       )}
     </>

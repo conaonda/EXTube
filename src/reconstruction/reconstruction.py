@@ -5,6 +5,7 @@ sparse/dense 포인트 클라우드를 생성한다.
 """
 
 import json
+import shutil
 import subprocess
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -26,6 +27,7 @@ class ReconstructionResult:
     gs_ply_path: Path | None = None
     gs_splat_path: Path | None = None
     gs_num_iterations: int | None = None
+    potree_metadata_path: Path | None = None
 
 
 def _run_colmap(
@@ -208,6 +210,48 @@ def stereo_fusion(
     )
 
 
+def potree_convert(
+    ply_path: Path,
+    output_dir: Path,
+    timeout: int = 600,
+) -> Path | None:
+    """PLY 파일을 PotreeConverter 2.x로 octree 포맷으로 변환한다.
+
+    Returns:
+        metadata.json 경로, 또는 PotreeConverter가 없으면 None
+    """
+    if not shutil.which("PotreeConverter"):
+        return None
+
+    if not ply_path.is_file():
+        raise FileNotFoundError(f"PLY 파일을 찾을 수 없습니다: {ply_path}")
+
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    cmd = [
+        "PotreeConverter",
+        str(ply_path),
+        "-o",
+        str(output_dir),
+    ]
+    result = subprocess.run(
+        cmd,
+        capture_output=True,
+        text=True,
+        check=False,
+        timeout=timeout,
+    )
+    if result.returncode != 0:
+        raise RuntimeError(
+            f"PotreeConverter 실패 (code {result.returncode}): {result.stderr}"
+        )
+
+    metadata_path = output_dir / "metadata.json"
+    if metadata_path.exists():
+        return metadata_path
+    return None
+
+
 def _count_ply_points(ply_path: Path) -> int:
     """PLY 파일의 vertex 수를 헤더에서 파싱한다."""
     try:
@@ -381,6 +425,21 @@ def reconstruct(
             gs_splat_path = gs_result.splat_path
             gs_num_iterations = gs_result.num_iterations
 
+    # 9. Potree octree 변환 (PotreeConverter가 있는 경우)
+    potree_metadata_path = None
+    # dense PLY가 있으면 그것을 변환, 없으면 sparse PLY
+    potree_source_ply = None
+    if dense and (workspace_dir / "dense_points.ply").exists():
+        potree_source_ply = workspace_dir / "dense_points.ply"
+    elif (workspace_dir / "points.ply").exists():
+        potree_source_ply = workspace_dir / "points.ply"
+
+    if potree_source_ply:
+        potree_dir = workspace_dir / "potree"
+        potree_metadata_path = potree_convert(potree_source_ply, potree_dir)
+        if potree_metadata_path:
+            steps_completed.append("potree_conversion")
+
     # 메타데이터 저장
     metadata = {
         "image_dir": str(image_dir),
@@ -397,6 +456,8 @@ def reconstruct(
         metadata["gs_num_iterations"] = gs_num_iterations
         metadata["gs_ply_path"] = str(gs_ply_path) if gs_ply_path else None
         metadata["gs_splat_path"] = str(gs_splat_path) if gs_splat_path else None
+    if potree_metadata_path:
+        metadata["potree_metadata_path"] = str(potree_metadata_path)
     metadata_path = workspace_dir / "reconstruction_metadata.json"
     metadata_path.write_text(json.dumps(metadata, indent=2, ensure_ascii=False))
 
@@ -413,4 +474,5 @@ def reconstruct(
         gs_ply_path=gs_ply_path,
         gs_splat_path=gs_splat_path,
         gs_num_iterations=gs_num_iterations,
+        potree_metadata_path=potree_metadata_path,
     )
