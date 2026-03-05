@@ -786,3 +786,25 @@ class TestDownloadJobFile:
         )
         assert resp.status_code == 200
         assert resp.content == b"camera binary"
+
+
+class TestMetrics:
+    """Prometheus /metrics 엔드포인트 테스트."""
+
+    def test_metrics_endpoint_returns_prometheus_format(self):
+        """/metrics가 Prometheus exposition format을 반환한다."""
+        resp = client.get("/metrics")
+        assert resp.status_code == 200
+        body = resp.text
+        assert "http_request" in body or "http_requests" in body
+        assert "extube_active_jobs" in body
+        assert "extube_queue_length" in body
+
+    def test_metrics_active_jobs_reflects_db(self):
+        """활성 Job 수가 메트릭에 반영된다."""
+        _insert_job("aabbccddee01", status=JobStatus.pending)
+        _insert_job("aabbccddee02", status=JobStatus.processing)
+        resp = client.get("/metrics")
+        body = resp.text
+        # extube_active_jobs should be 2.0
+        assert "extube_active_jobs 2.0" in body

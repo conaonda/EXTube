@@ -18,8 +18,10 @@ from typing import Any
 import redis
 from fastapi import Depends, FastAPI, HTTPException, Query, WebSocket
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, StreamingResponse
+from fastapi.responses import FileResponse, Response, StreamingResponse
 from fastapi.staticfiles import StaticFiles
+from prometheus_client import Gauge, generate_latest
+from prometheus_fastapi_instrumentator import Instrumentator
 from pydantic import BaseModel
 from rq import Queue
 
@@ -100,6 +102,44 @@ app.add_middleware(
         ("POST", "/api/jobs"): RateLimitRule(max_requests=5, window_seconds=3600),
     },
 )
+
+# Prometheus 메트릭
+ACTIVE_JOBS_GAUGE = Gauge(
+    "extube_active_jobs", "Number of active jobs (pending + processing)"
+)
+QUEUE_LENGTH_GAUGE = Gauge("extube_queue_length", "Number of jobs in the RQ queue")
+
+
+def _update_job_gauges() -> None:
+    """Scrape 시점에 활성 Job 수와 큐 길이를 갱신한다."""
+    try:
+        active = 0
+        for s in ("pending", "processing"):
+            active += _job_store.list(status=s, limit=0)["total"]
+        ACTIVE_JOBS_GAUGE.set(active)
+    except Exception:
+        pass
+    try:
+        q = _get_queue()
+        QUEUE_LENGTH_GAUGE.set(len(q))
+    except Exception:
+        QUEUE_LENGTH_GAUGE.set(0)
+
+
+_instrumentator = Instrumentator(
+    excluded_handlers=["/metrics", "/health", "/health/ready"],
+).instrument(app)
+
+
+@app.get("/metrics", include_in_schema=True)
+def metrics() -> Response:
+    """Prometheus 메트릭 엔드포인트."""
+    _update_job_gauges()
+    return Response(
+        content=generate_latest(),
+        media_type="text/plain; version=0.0.4; charset=utf-8",
+    )
+
 
 OUTPUT_BASE_DIR = _settings.output_base_dir
 STATIC_DIR = Path(__file__).resolve().parent.parent / "viewer" / "dist"
