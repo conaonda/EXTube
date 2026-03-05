@@ -68,7 +68,7 @@ describe('JobHistory', () => {
   })
 
   it('renders job list after loading', async () => {
-    mockGetJobs.mockResolvedValue({ items: mockJobs, total: 3 })
+    mockGetJobs.mockResolvedValue({ items: mockJobs, total: 3, page: 1, per_page: 20, total_pages: 1 })
     renderWithRouter()
 
     await waitFor(() => {
@@ -79,7 +79,7 @@ describe('JobHistory', () => {
   })
 
   it('shows empty state when no jobs', async () => {
-    mockGetJobs.mockResolvedValue({ items: [], total: 0 })
+    mockGetJobs.mockResolvedValue({ items: [], total: 0, page: 1, per_page: 20, total_pages: 1 })
     renderWithRouter()
 
     await waitFor(() => {
@@ -97,7 +97,7 @@ describe('JobHistory', () => {
   })
 
   it('renders status filter buttons', async () => {
-    mockGetJobs.mockResolvedValue({ items: [], total: 0 })
+    mockGetJobs.mockResolvedValue({ items: [], total: 0, page: 1, per_page: 20, total_pages: 1 })
     renderWithRouter()
 
     expect(screen.getByRole('button', { name: '전체' })).toBeInTheDocument()
@@ -109,22 +109,22 @@ describe('JobHistory', () => {
 
   it('calls getJobs with status filter when filter button clicked', async () => {
     const user = userEvent.setup()
-    mockGetJobs.mockResolvedValue({ items: [], total: 0 })
+    mockGetJobs.mockResolvedValue({ items: [], total: 0, page: 1, per_page: 20, total_pages: 1 })
     renderWithRouter()
 
     await waitFor(() => {
-      expect(mockGetJobs).toHaveBeenCalledWith(undefined, 20, 0)
+      expect(mockGetJobs).toHaveBeenCalledWith(undefined, 1, 20, 'created_at', 'desc')
     })
 
     await user.click(screen.getByRole('button', { name: '완료' }))
 
     await waitFor(() => {
-      expect(mockGetJobs).toHaveBeenCalledWith('completed', 20, 0)
+      expect(mockGetJobs).toHaveBeenCalledWith('completed', 1, 20, 'created_at', 'desc')
     })
   })
 
   it('renders pagination when total exceeds page size', async () => {
-    mockGetJobs.mockResolvedValue({ items: mockJobs, total: 45 })
+    mockGetJobs.mockResolvedValue({ items: mockJobs, total: 45, page: 1, per_page: 20, total_pages: 3 })
     renderWithRouter()
 
     await waitFor(() => {
@@ -135,7 +135,7 @@ describe('JobHistory', () => {
   })
 
   it('does not render pagination when total fits one page', async () => {
-    mockGetJobs.mockResolvedValue({ items: mockJobs, total: 3 })
+    mockGetJobs.mockResolvedValue({ items: mockJobs, total: 3, page: 1, per_page: 20, total_pages: 1 })
     renderWithRouter()
 
     await waitFor(() => {

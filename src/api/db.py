@@ -236,14 +236,18 @@ class JobStore:
             self._conn.commit()
         return self._row_to_dict(job)
 
+    _SORT_COLUMNS = {"created_at", "status", "url"}
+
     def list(
         self,
         status: str | None = None,
         limit: int = 20,
         offset: int = 0,
         user_id: str | None = None,
+        sort_by: str = "created_at",
+        order: str = "desc",
     ) -> dict[str, Any]:
-        """Job 목록을 조회한다. 최신순 정렬, 페이지네이션 지원."""
+        """Job 목록을 조회한다. 정렬 및 페이지네이션 지원."""
         params: list[Any] = []
         conditions: list[str] = []
         if status is not None:
@@ -254,6 +258,10 @@ class JobStore:
             params.append(user_id)
         where = (" WHERE " + " AND ".join(conditions)) if conditions else ""
 
+        if sort_by not in self._SORT_COLUMNS:
+            sort_by = "created_at"
+        direction = "ASC" if order == "asc" else "DESC"
+
         with self._lock:
             count_row = self._conn.execute(
                 f"SELECT COUNT(*) FROM jobs{where}",
@@ -263,7 +271,7 @@ class JobStore:
 
             query_params = params + [limit, offset]
             rows = self._conn.execute(
-                f"SELECT * FROM jobs{where} ORDER BY created_at DESC LIMIT ? OFFSET ?",  # noqa: S608
+                f"SELECT * FROM jobs{where} ORDER BY {sort_by} {direction} LIMIT ? OFFSET ?",  # noqa: S608
                 query_params,
             ).fetchall()
 

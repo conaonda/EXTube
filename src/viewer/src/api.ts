@@ -96,17 +96,24 @@ export async function getJob(jobId: string): Promise<Job> {
 export interface JobListResponse {
   items: Job[]
   total: number
+  page: number
+  per_page: number
+  total_pages: number
 }
 
 export async function getJobs(
   status?: string,
-  limit = 20,
-  offset = 0,
+  page = 1,
+  per_page = 20,
+  sort_by = 'created_at',
+  order: 'asc' | 'desc' = 'desc',
 ): Promise<JobListResponse> {
   const params = new URLSearchParams()
   if (status) params.set('status', status)
-  params.set('limit', String(limit))
-  params.set('offset', String(offset))
+  params.set('page', String(page))
+  params.set('per_page', String(per_page))
+  params.set('sort_by', sort_by)
+  params.set('order', order)
   try {
     const res = await authFetch(`${API_BASE}/jobs?${params}`)
     return handleResponse<JobListResponse>(res, 'Job 목록 조회 실패')

@@ -1,4 +1,4 @@
-.PHONY: lint test test-e2e format install dev
+.PHONY: lint test test-e2e format install dev coverage
 
 install:
 	pip install -e .
@@ -21,3 +21,6 @@ test:
 
 test-e2e:
 	pytest -v -m e2e
+
+coverage:
+	pytest --cov=src --cov-report=html:htmlcov --cov-report=xml:coverage.xml --cov-report=term-missing --cov-fail-under=70 -v
