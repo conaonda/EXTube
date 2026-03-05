@@ -344,7 +344,13 @@ def create_job(
     try:
         meta = fetch_video_metadata(body.url)
     except RuntimeError as e:
-        raise HTTPException(status_code=422, detail=f"영상 정보를 가져올 수 없습니다: {e}")
+        raise HTTPException(status_code=503, detail=f"영상 정보를 가져올 수 없습니다: {e}")
+
+    if meta.duration is None:
+        raise HTTPException(
+            status_code=422,
+            detail="영상 길이를 확인할 수 없습니다 (라이브 스트림 등은 지원하지 않습니다)",
+        )
 
     max_duration = _settings.max_video_duration_seconds
     if meta.duration > max_duration:

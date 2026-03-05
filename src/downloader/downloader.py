@@ -34,7 +34,7 @@ def validate_youtube_url(url: str) -> bool:
 class VideoMetadata:
     """영상 메타데이터."""
 
-    duration: float  # 초
+    duration: float | None  # 초 (라이브 스트림 등은 None)
     title: str
     video_id: str
     height: int | None
@@ -64,7 +64,7 @@ def fetch_video_metadata(url: str) -> VideoMetadata:
             raise RuntimeError(f"메타데이터 조회 실패: {e}") from e
 
     return VideoMetadata(
-        duration=info.get("duration") or 0,
+        duration=info.get("duration"),
         title=info.get("title", ""),
         video_id=info["id"],
         height=info.get("height"),

@@ -1013,8 +1013,26 @@ class TestVideoValidation:
             json={"url": "https://www.youtube.com/watch?v=dQw4w9WgXcQ"},
             headers=headers,
         )
-        assert resp.status_code == 422
+        assert resp.status_code == 503
         assert "영상 정보를 가져올 수 없습니다" in resp.json()["detail"]
+
+    @patch("src.api.main._enqueue_job")
+    @patch("src.api.main.fetch_video_metadata")
+    def test_duration_none_rejected(self, mock_meta, mock_enqueue):
+        """duration=None(라이브 스트림 등)은 422를 반환한다."""
+        mock_meta.return_value = VideoMetadata(
+            duration=None, title="Live Stream", video_id="abc",
+            height=1080, filesize_approx=None,
+        )
+        headers = _get_auth_headers()
+        resp = client.post(
+            "/api/jobs",
+            json={"url": "https://www.youtube.com/watch?v=dQw4w9WgXcQ"},
+            headers=headers,
+        )
+        assert resp.status_code == 422
+        assert "영상 길이를 확인할 수 없습니다" in resp.json()["detail"]
+        mock_enqueue.assert_not_called()
 
     @patch("src.api.main._enqueue_job")
     @patch("src.api.main.fetch_video_metadata")
