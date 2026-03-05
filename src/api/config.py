@@ -32,6 +32,10 @@ class Settings(BaseSettings):
     # CORS (쉼표 구분 문자열)
     cors_origins: str = "http://localhost:5173,http://localhost:3000"
 
+    # 로깅
+    log_level: str = "INFO"
+    log_json: bool = True
+
     # JWT 인증
     jwt_secret_key: str = "change-me-in-production"
     jwt_algorithm: str = "HS256"

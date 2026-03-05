@@ -3,8 +3,8 @@
 from __future__ import annotations
 
 import json
-import logging
 import re
+import time
 from pathlib import Path
 from typing import Any
 
@@ -12,8 +12,9 @@ import redis
 
 from src.api.config import get_settings
 from src.api.db import JobStore
+from src.api.logging_config import get_logger
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 _settings = get_settings()
 
@@ -65,14 +66,25 @@ def run_pipeline(
         )
 
     try:
+        pipeline_start = time.monotonic()
+
         # 1. 다운로드
         _update_progress("download", 0, "영상 다운로드 시작")
+        stage_start = time.monotonic()
         download_dir = job_dir / "download"
         download_result = download_video(url, download_dir, max_height=max_height)
+        download_duration = round(time.monotonic() - stage_start, 2)
+        logger.info(
+            "stage_completed",
+            job_id=job_id,
+            stage="download",
+            duration_s=download_duration,
+        )
         _update_progress("download", 100, "영상 다운로드 완료")
 
         # 2. 프레임 추출
         _update_progress("extraction", 0, "프레임 추출 시작")
+        stage_start = time.monotonic()
         extraction_dir = job_dir / "extraction"
         extraction_result = extract_and_filter(
             download_result.video_path,
@@ -80,10 +92,20 @@ def run_pipeline(
             interval=frame_interval,
             blur_threshold=blur_threshold,
         )
+        extraction_duration = round(time.monotonic() - stage_start, 2)
+        logger.info(
+            "stage_completed",
+            job_id=job_id,
+            stage="extraction",
+            duration_s=extraction_duration,
+            total_extracted=extraction_result.total_extracted,
+            total_filtered=extraction_result.total_filtered,
+        )
         _update_progress("extraction", 100, "프레임 추출 완료")
 
         # 3. 3D 복원
         _update_progress("reconstruction", 0, "3D 복원 시작")
+        stage_start = time.monotonic()
         reconstruction_dir = job_dir / "reconstruction"
         frames_dir = extraction_dir / "frames"
         reconstruction_result = reconstruct(
@@ -94,6 +116,15 @@ def run_pipeline(
             max_image_size=max_image_size,
             gaussian_splatting=gaussian_splatting,
             gs_max_iterations=gs_max_iterations,
+        )
+        reconstruction_duration = round(time.monotonic() - stage_start, 2)
+        logger.info(
+            "stage_completed",
+            job_id=job_id,
+            stage="reconstruction",
+            duration_s=reconstruction_duration,
+            num_registered=reconstruction_result.num_registered,
+            num_points3d=reconstruction_result.num_points3d,
         )
         _update_progress("reconstruction", 100, "3D 복원 완료")
 
@@ -141,8 +172,21 @@ def run_pipeline(
         job_store.update(job_id, **updates)
         _publish_progress(redis_conn, job_id, {"status": "completed", "result": result})
 
+        total_duration = round(time.monotonic() - pipeline_start, 2)
+        logger.info(
+            "pipeline_completed",
+            job_id=job_id,
+            total_duration_s=total_duration,
+        )
+
     except Exception as e:
-        logger.exception("작업 %s 실패", job_id)
+        logger.error(
+            "pipeline_failed",
+            job_id=job_id,
+            exc_type=type(e).__name__,
+            exc_message=str(e),
+            exc_info=e,
+        )
         job_store.update(job_id, status="failed", error=str(e))
         _publish_progress(redis_conn, job_id, {"status": "failed", "error": str(e)})
     finally:

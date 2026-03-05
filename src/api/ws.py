@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import asyncio
 import json
-import logging
 import threading
 from collections import defaultdict
 from typing import Any
@@ -12,8 +11,9 @@ from typing import Any
 from fastapi import WebSocket, WebSocketDisconnect
 
 from src.api.db import JobStore
+from src.api.logging_config import get_logger
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 
 class JobProgressManager:
