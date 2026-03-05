@@ -5,6 +5,8 @@ import JobForm from './components/JobForm'
 import JobStatusBar from './components/JobStatus'
 import { createJob, getJob, getPotreeUrl, getResultUrl, getSplatUrl } from './api'
 import type { Job } from './api'
+import { useJobWebSocket } from './hooks/useJobWebSocket'
+import type { JobProgress, WsJobMessage } from './hooks/useJobWebSocket'
 
 export default function App() {
   const { jobId } = useParams<{ jobId?: string }>()
@@ -13,6 +15,8 @@ export default function App() {
   const [plyUrl, setPlyUrl] = useState<string | null>(null)
   const [potreeUrl, setPotreeUrl] = useState<string | null>(null)
   const [splatUrl, setSplatUrl] = useState<string | null>(null)
+  const [progress, setProgress] = useState<JobProgress | null>(null)
+  const [wsJobId, setWsJobId] = useState<string | null>(null)
   const pollingRef = useRef<ReturnType<typeof setInterval> | null>(null)
 
   const stopPolling = useCallback(() => {
@@ -22,6 +26,50 @@ export default function App() {
     }
   }, [])
 
+  const handleJobCompleted = useCallback(
+    (updated: Job) => {
+      setJob(updated)
+      setProgress(null)
+      setWsJobId(null)
+      if (updated.result?.has_gaussian_splatting) {
+        setSplatUrl(getSplatUrl(updated.id, updated.result.gaussian_splatting_format ?? 'splat'))
+      } else if (updated.result?.has_potree) {
+        setPotreeUrl(getPotreeUrl(updated.id))
+      } else {
+        setPlyUrl(getResultUrl(updated.id))
+      }
+    },
+    [],
+  )
+
+  const onWsMessage = useCallback(
+    (msg: WsJobMessage) => {
+      if (msg.status === 'completed') {
+        // Fetch full job data on completion
+        if (wsJobId) {
+          getJob(wsJobId).then(handleJobCompleted).catch(() => {})
+        }
+      } else if (msg.status === 'failed') {
+        setJob((prev) =>
+          prev ? { ...prev, status: 'failed', error: msg.error ?? null } : prev,
+        )
+        setProgress(null)
+        setWsJobId(null)
+      } else if (msg.progress) {
+        setProgress(msg.progress)
+        setJob((prev) =>
+          prev && prev.status !== 'completed' && prev.status !== 'failed'
+            ? { ...prev, status: 'processing' }
+            : prev,
+        )
+      }
+    },
+    [wsJobId, handleJobCompleted],
+  )
+
+  useJobWebSocket({ jobId: wsJobId, onMessage: onWsMessage })
+
+  // Fallback polling for when WebSocket is not available
   const startPolling = useCallback(
     (id: string) => {
       pollingRef.current = setInterval(async () => {
@@ -30,13 +78,7 @@ export default function App() {
           setJob(updated)
           if (updated.status === 'completed') {
             stopPolling()
-            if (updated.result?.has_gaussian_splatting) {
-              setSplatUrl(getSplatUrl(updated.id, updated.result.gaussian_splatting_format ?? 'splat'))
-            } else if (updated.result?.has_potree) {
-              setPotreeUrl(getPotreeUrl(updated.id))
-            } else {
-              setPlyUrl(getResultUrl(updated.id))
-            }
+            handleJobCompleted(updated)
           } else if (updated.status === 'failed') {
             stopPolling()
           }
@@ -46,7 +88,7 @@ export default function App() {
         }
       }, 2000)
     },
-    [stopPolling],
+    [stopPolling, handleJobCompleted],
   )
 
   const loadJob = useCallback(
@@ -55,27 +97,22 @@ export default function App() {
       setPlyUrl(null)
       setPotreeUrl(null)
       setSplatUrl(null)
+      setProgress(null)
       stopPolling()
 
       try {
         const loaded = await getJob(id)
         setJob(loaded)
         if (loaded.status === 'completed') {
-          if (loaded.result?.has_gaussian_splatting) {
-            setSplatUrl(getSplatUrl(loaded.id, loaded.result.gaussian_splatting_format ?? 'splat'))
-          } else if (loaded.result?.has_potree) {
-            setPotreeUrl(getPotreeUrl(loaded.id))
-          } else {
-            setPlyUrl(getResultUrl(loaded.id))
-          }
+          handleJobCompleted(loaded)
         } else if (loaded.status === 'pending' || loaded.status === 'processing') {
-          startPolling(loaded.id)
+          setWsJobId(loaded.id)
         }
       } catch {
         setError('작업을 찾을 수 없습니다')
       }
     },
-    [stopPolling, startPolling],
+    [stopPolling, handleJobCompleted],
   )
 
   // Load job from URL param
@@ -90,17 +127,18 @@ export default function App() {
       setPlyUrl(null)
       setPotreeUrl(null)
       setSplatUrl(null)
+      setProgress(null)
       stopPolling()
 
       try {
         const created = await createJob(url)
         setJob(created)
-        startPolling(created.id)
+        setWsJobId(created.id)
       } catch (err) {
         setError(err instanceof Error ? err.message : '작업 생성 실패')
       }
     },
-    [stopPolling, startPolling],
+    [stopPolling],
   )
 
   useEffect(() => {
@@ -138,7 +176,7 @@ export default function App() {
             {error}
           </div>
         )}
-        {job && <JobStatusBar job={job} />}
+        {job && <JobStatusBar job={job} progress={progress} />}
       </div>
       <ViewerCanvas plyUrl={plyUrl} potreeUrl={potreeUrl} splatUrl={splatUrl} />
     </>

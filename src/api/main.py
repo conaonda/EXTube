@@ -18,7 +18,7 @@ from enum import StrEnum
 from pathlib import Path
 from typing import Any
 
-from fastapi import FastAPI, HTTPException, Query
+from fastapi import FastAPI, HTTPException, Query, WebSocket
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
@@ -27,6 +27,7 @@ from pydantic import BaseModel
 from src.api.config import get_settings
 from src.api.db import JobStore
 from src.api.rate_limit import RateLimitMiddleware, RateLimitRule
+from src.api.ws import broadcast_progress, websocket_job_handler
 from src.downloader import validate_youtube_url
 from src.extractor import extract_and_filter
 from src.reconstruction import reconstruct
@@ -143,10 +144,9 @@ def _run_pipeline(job_id: str, params: JobCreate) -> None:
     job_dir = _validate_job_path(job_id)
 
     def _update_progress(stage: str, percent: int, message: str) -> None:
-        _job_store.update(
-            job_id,
-            progress={"stage": stage, "percent": percent, "message": message},
-        )
+        progress = {"stage": stage, "percent": percent, "message": message}
+        _job_store.update(job_id, progress=progress)
+        broadcast_progress(job_id, {"status": "processing", "progress": progress})
 
     try:
         # 1. 다운로드
@@ -227,10 +227,12 @@ def _run_pipeline(job_id: str, params: JobCreate) -> None:
                 result["has_potree"] = True
 
         _job_store.update(job_id, **updates)
+        broadcast_progress(job_id, {"status": "completed", "result": result})
 
     except Exception as e:
         logger.exception("작업 %s 실패", job_id)
         _job_store.update(job_id, status=JobStatus.failed, error=str(e))
+        broadcast_progress(job_id, {"status": "failed", "error": str(e)})
 
 
 # --- Health 엔드포인트 ---
@@ -610,6 +612,12 @@ def download_job_file(job_id: str, file_path: str) -> FileResponse:
         filename=target.name,
         headers={"Content-Disposition": f'attachment; filename="{target.name}"'},
     )
+
+
+@app.websocket("/ws/jobs/{job_id}")
+async def ws_job_progress(websocket: WebSocket, job_id: str) -> None:
+    """WebSocket으로 작업 진행률을 실시간 전달한다."""
+    await websocket_job_handler(websocket, job_id, _job_store)
 
 
 def mount_static_files() -> None:
