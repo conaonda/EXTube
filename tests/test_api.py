@@ -201,6 +201,57 @@ class TestListJobs:
         assert resp.status_code == 422
 
 
+class TestDeleteJob:
+    """DELETE /api/jobs/{id} 테스트."""
+
+    def test_not_found(self):
+        """존재하지 않는 작업은 404를 반환한다."""
+        resp = client.delete("/api/jobs/nonexistent")
+        assert resp.status_code == 404
+
+    def test_processing_returns_409(self):
+        """처리 중인 작업은 409를 반환한다."""
+        _insert_job("aabbccddeef9", status=JobStatus.processing)
+        resp = client.delete("/api/jobs/aabbccddeef9")
+        assert resp.status_code == 409
+        assert "처리 중" in resp.json()["detail"]
+
+    def test_delete_completed_job(self):
+        """완료된 작업을 삭제한다."""
+        _insert_job("aabbccddeed1", status=JobStatus.completed)
+        resp = client.delete("/api/jobs/aabbccddeed1")
+        assert resp.status_code == 204
+        assert _job_store.get("aabbccddeed1") is None
+
+    def test_delete_failed_job(self):
+        """실패한 작업을 삭제한다."""
+        _insert_job("aabbccddeed2", status=JobStatus.failed, error="err")
+        resp = client.delete("/api/jobs/aabbccddeed2")
+        assert resp.status_code == 204
+        assert _job_store.get("aabbccddeed2") is None
+
+    def test_delete_pending_job(self):
+        """대기 중인 작업을 삭제한다."""
+        _insert_job("aabbccddeed3", status=JobStatus.pending)
+        resp = client.delete("/api/jobs/aabbccddeed3")
+        assert resp.status_code == 204
+        assert _job_store.get("aabbccddeed3") is None
+
+    @patch("src.api.main.OUTPUT_BASE_DIR")
+    def test_delete_cleans_disk(self, mock_base_dir, tmp_path):
+        """삭제 시 디스크 파일도 정리한다."""
+        mock_base_dir.resolve.return_value = tmp_path.resolve()
+        job_dir = tmp_path / "aabbccddeed4"
+        job_dir.mkdir(parents=True)
+        (job_dir / "test.txt").write_text("data")
+        mock_base_dir.__truediv__ = lambda self, x: tmp_path / x
+
+        _insert_job("aabbccddeed4", status=JobStatus.completed)
+        resp = client.delete("/api/jobs/aabbccddeed4")
+        assert resp.status_code == 204
+        assert not job_dir.exists()
+
+
 class TestGetJobResult:
     """GET /api/jobs/{id}/result 테스트."""
 
@@ -237,6 +288,55 @@ class TestGetJobResult:
         resp = client.get("/api/jobs/aabbccddeef4/result")
         assert resp.status_code == 200
         assert resp.content == b"ply content"
+
+
+class TestGetSplatFile:
+    """GET /api/jobs/{id}/splat 테스트."""
+
+    def test_not_found(self):
+        """존재하지 않는 작업은 404를 반환한다."""
+        resp = client.get("/api/jobs/nonexistent/splat")
+        assert resp.status_code == 404
+
+    def test_not_completed(self):
+        """완료되지 않은 작업은 400을 반환한다."""
+        _insert_job("aabbccddees1", status=JobStatus.processing)
+        resp = client.get("/api/jobs/aabbccddees1/splat")
+        assert resp.status_code == 400
+
+    def test_no_splat_path(self):
+        """gs_splat_path가 없으면 404를 반환한다."""
+        _insert_job("aabbccddees2", status=JobStatus.completed)
+        resp = client.get("/api/jobs/aabbccddees2/splat")
+        assert resp.status_code == 404
+
+    @patch("src.api.main.OUTPUT_BASE_DIR")
+    def test_serve_splat_file(self, mock_base_dir, tmp_path):
+        """GS splat 파일을 서빙한다."""
+        mock_base_dir.resolve.return_value = tmp_path.resolve()
+        splat_file = tmp_path / "point_cloud.ply"
+        splat_file.write_bytes(b"splat binary data")
+
+        _insert_job("aabbccddees3", status=JobStatus.completed)
+        _job_store.update("aabbccddees3", gs_splat_path=str(splat_file))
+        resp = client.get("/api/jobs/aabbccddees3/splat")
+        assert resp.status_code == 200
+        assert resp.content == b"splat binary data"
+
+    def test_response_includes_gs_splat_url(self):
+        """gs_splat_path가 있으면 응답에 gs_splat_url이 포함된다."""
+        _insert_job("aabbccddees4", status=JobStatus.completed)
+        _job_store.update("aabbccddees4", gs_splat_path="/some/path.ply")
+        resp = client.get("/api/jobs/aabbccddees4")
+        assert resp.status_code == 200
+        assert resp.json()["gs_splat_url"] == "/api/jobs/aabbccddees4/splat"
+
+    def test_response_no_gs_splat_url(self):
+        """gs_splat_path가 없으면 gs_splat_url은 null이다."""
+        _insert_job("aabbccddees5", status=JobStatus.completed)
+        resp = client.get("/api/jobs/aabbccddees5")
+        assert resp.status_code == 200
+        assert resp.json()["gs_splat_url"] is None
 
 
 def _parse_sse_events(response) -> list[dict]:
