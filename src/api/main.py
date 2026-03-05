@@ -8,6 +8,7 @@ import json
 import logging
 import re
 import shutil
+import threading
 import time
 import uuid
 from collections.abc import AsyncIterator
@@ -25,6 +26,7 @@ from pydantic import BaseModel
 
 from src.api.config import get_settings
 from src.api.db import JobStore
+from src.api.rate_limit import RateLimitMiddleware, RateLimitRule
 from src.downloader import validate_youtube_url
 from src.extractor import extract_and_filter
 from src.reconstruction import reconstruct
@@ -56,11 +58,21 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# Rate limiting
+app.add_middleware(
+    RateLimitMiddleware,
+    default_rule=RateLimitRule(max_requests=100, window_seconds=60),
+    path_rules={
+        ("POST", "/api/jobs"): RateLimitRule(max_requests=5, window_seconds=3600),
+    },
+)
+
 OUTPUT_BASE_DIR = _settings.output_base_dir
 STATIC_DIR = Path(__file__).resolve().parent.parent / "viewer" / "dist"
 
 _MAX_WORKERS = _settings.max_workers
 _SSE_TIMEOUT_SECONDS = _settings.sse_timeout_seconds
+_gpu_semaphore = threading.Semaphore(_settings.gpu_concurrency)
 
 
 class JobStatus(StrEnum):
@@ -117,7 +129,7 @@ def _validate_job_path(job_id: str) -> Path:
         raise ValueError(f"잘못된 job_id 형식: {job_id}")
     job_dir = (OUTPUT_BASE_DIR / job_id).resolve()
     base_resolved = OUTPUT_BASE_DIR.resolve()
-    if not str(job_dir).startswith(str(base_resolved)):
+    if not job_dir.is_relative_to(base_resolved):
         raise ValueError("잘못된 경로")
     return job_dir
 
@@ -156,19 +168,21 @@ def _run_pipeline(job_id: str, params: JobCreate) -> None:
         )
         _update_progress("extraction", 100, "프레임 추출 완료")
 
-        # 3. 3D 복원
-        _update_progress("reconstruction", 0, "3D 복원 시작")
+        # 3. 3D 복원 (GPU semaphore로 동시성 제한)
+        _update_progress("reconstruction", 0, "GPU 대기 중")
         reconstruction_dir = job_dir / "reconstruction"
         frames_dir = extraction_dir / "frames"
-        reconstruction_result = reconstruct(
-            frames_dir,
-            reconstruction_dir,
-            camera_model=params.camera_model,
-            dense=params.dense,
-            max_image_size=params.max_image_size,
-            gaussian_splatting=params.gaussian_splatting,
-            gs_max_iterations=params.gs_max_iterations,
-        )
+        with _gpu_semaphore:
+            _update_progress("reconstruction", 0, "3D 복원 시작")
+            reconstruction_result = reconstruct(
+                frames_dir,
+                reconstruction_dir,
+                camera_model=params.camera_model,
+                dense=params.dense,
+                max_image_size=params.max_image_size,
+                gaussian_splatting=params.gaussian_splatting,
+                gs_max_iterations=params.gs_max_iterations,
+            )
 
         _update_progress("reconstruction", 100, "3D 복원 완료")
 
@@ -190,25 +204,25 @@ def _run_pipeline(job_id: str, params: JobCreate) -> None:
         if reconstruction_result.gs_num_iterations is not None:
             result["gs_num_iterations"] = reconstruction_result.gs_num_iterations
         updates: dict[str, Any] = {"status": JobStatus.completed, "result": result}
-        if ply_path.exists() and str(ply_resolved).startswith(str(base_resolved)):
+        if ply_path.exists() and ply_resolved.is_relative_to(base_resolved):
             updates["ply_path"] = str(ply_resolved)
 
         dense_ply_path = reconstruction_dir / "dense_points.ply"
         if dense_ply_path.exists():
             dense_resolved = dense_ply_path.resolve()
-            if str(dense_resolved).startswith(str(base_resolved)):
+            if dense_resolved.is_relative_to(base_resolved):
                 updates["dense_ply_path"] = str(dense_resolved)
 
         gs_ply = reconstruction_result.gs_ply_path
         if gs_ply and gs_ply.exists():
             gs_resolved = gs_ply.resolve()
-            if str(gs_resolved).startswith(str(base_resolved)):
+            if gs_resolved.is_relative_to(base_resolved):
                 updates["gs_splat_path"] = str(gs_resolved)
 
         potree_meta = reconstruction_result.potree_metadata_path
         if potree_meta and potree_meta.exists():
             potree_dir = potree_meta.parent.resolve()
-            if str(potree_dir).startswith(str(base_resolved)):
+            if potree_dir.is_relative_to(base_resolved):
                 updates["potree_dir"] = str(potree_dir)
                 result["has_potree"] = True
 
@@ -429,7 +443,7 @@ def get_job_result(job_id: str) -> FileResponse:
 
     ply_resolved = Path(ply_path).resolve()
     base_resolved = OUTPUT_BASE_DIR.resolve()
-    if not str(ply_resolved).startswith(str(base_resolved)):
+    if not ply_resolved.is_relative_to(base_resolved):
         raise HTTPException(
             status_code=400,
             detail="잘못된 파일 경로입니다",
@@ -470,7 +484,7 @@ def get_splat_file(job_id: str) -> FileResponse:
 
     splat_resolved = Path(gs_splat_path).resolve()
     base_resolved = OUTPUT_BASE_DIR.resolve()
-    if not str(splat_resolved).startswith(str(base_resolved)):
+    if not splat_resolved.is_relative_to(base_resolved):
         raise HTTPException(status_code=400, detail="잘못된 파일 경로입니다")
 
     if not splat_resolved.exists():
@@ -505,11 +519,11 @@ def get_potree_file(job_id: str, file_path: str) -> FileResponse:
 
     base_resolved = OUTPUT_BASE_DIR.resolve()
     potree_resolved = Path(potree_dir).resolve()
-    if not str(potree_resolved).startswith(str(base_resolved)):
+    if not potree_resolved.is_relative_to(base_resolved):
         raise HTTPException(status_code=400, detail="잘못된 파일 경로입니다")
 
     target = (potree_resolved / file_path).resolve()
-    if not str(target).startswith(str(potree_resolved)):
+    if not target.is_relative_to(potree_resolved):
         raise HTTPException(status_code=400, detail="잘못된 파일 경로입니다")
 
     if not target.exists():

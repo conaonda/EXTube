@@ -15,6 +15,7 @@ class Settings(BaseSettings):
 
     # 작업 관련
     max_workers: int = 4
+    gpu_concurrency: int = 1
     job_ttl_seconds: int = 24 * 60 * 60  # 24시간
     sse_timeout_seconds: int = 30 * 60  # 30분
 
