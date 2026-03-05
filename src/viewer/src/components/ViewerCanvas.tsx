@@ -4,6 +4,7 @@ import { OrbitControls } from '@react-three/drei'
 import PointCloud from './PointCloud'
 import PotreePointCloud from './PotreePointCloud'
 import GaussianSplatViewer from './GaussianSplatViewer'
+import Viewer3DErrorBoundary from './Viewer3DErrorBoundary'
 import ViewerControls from './ViewerControls'
 import type { OrbitControls as OrbitControlsImpl } from 'three-stdlib'
 
@@ -51,25 +52,31 @@ export default function ViewerCanvas({ plyUrl, potreeUrl, splatUrl }: ViewerCanv
         <ambientLight intensity={0.5} />
         <directionalLight position={[5, 5, 5]} />
         {splatUrl ? (
-          <GaussianSplatViewer
-            url={splatUrl}
-            onLoad={handlePointCloudLoad}
-          />
-        ) : potreeUrl ? (
-          <PotreePointCloud
-            url={potreeUrl}
-            pointSize={pointSize}
-            onLoad={handlePointCloudLoad}
-          />
-        ) : plyUrl ? (
-          <Suspense fallback={null}>
-            <PointCloud
-              url={plyUrl}
-              pointSize={pointSize}
-              showBoundingBox={showBoundingBox}
+          <Viewer3DErrorBoundary>
+            <GaussianSplatViewer
+              url={splatUrl}
               onLoad={handlePointCloudLoad}
             />
-          </Suspense>
+          </Viewer3DErrorBoundary>
+        ) : potreeUrl ? (
+          <Viewer3DErrorBoundary>
+            <PotreePointCloud
+              url={potreeUrl}
+              pointSize={pointSize}
+              onLoad={handlePointCloudLoad}
+            />
+          </Viewer3DErrorBoundary>
+        ) : plyUrl ? (
+          <Viewer3DErrorBoundary>
+            <Suspense fallback={null}>
+              <PointCloud
+                url={plyUrl}
+                pointSize={pointSize}
+                showBoundingBox={showBoundingBox}
+                onLoad={handlePointCloudLoad}
+              />
+            </Suspense>
+          </Viewer3DErrorBoundary>
         ) : (
           <mesh>
             <boxGeometry />
