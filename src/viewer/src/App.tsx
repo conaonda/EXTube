@@ -3,13 +3,14 @@ import Layout from './components/Layout'
 import ViewerCanvas from './components/ViewerCanvas'
 import JobForm from './components/JobForm'
 import JobStatusBar from './components/JobStatus'
-import { createJob, getJob, getResultUrl } from './api'
+import { createJob, getJob, getPotreeUrl, getResultUrl } from './api'
 import type { Job } from './api'
 
 export default function App() {
   const [job, setJob] = useState<Job | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [plyUrl, setPlyUrl] = useState<string | null>(null)
+  const [potreeUrl, setPotreeUrl] = useState<string | null>(null)
   const pollingRef = useRef<ReturnType<typeof setInterval> | null>(null)
 
   const stopPolling = useCallback(() => {
@@ -23,6 +24,7 @@ export default function App() {
     async (url: string) => {
       setError(null)
       setPlyUrl(null)
+      setPotreeUrl(null)
       stopPolling()
 
       try {
@@ -35,7 +37,11 @@ export default function App() {
             setJob(updated)
             if (updated.status === 'completed') {
               stopPolling()
-              setPlyUrl(getResultUrl(updated.id))
+              if (updated.result?.has_potree) {
+                setPotreeUrl(getPotreeUrl(updated.id))
+              } else {
+                setPlyUrl(getResultUrl(updated.id))
+              }
             } else if (updated.status === 'failed') {
               stopPolling()
             }
@@ -88,7 +94,7 @@ export default function App() {
         )}
         {job && <JobStatusBar job={job} />}
       </div>
-      <ViewerCanvas plyUrl={plyUrl} />
+      <ViewerCanvas plyUrl={plyUrl} potreeUrl={potreeUrl} />
     </Layout>
   )
 }

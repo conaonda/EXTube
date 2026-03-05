@@ -203,6 +203,14 @@ def _run_pipeline(job_id: str, params: JobCreate) -> None:
             gs_resolved = gs_ply.resolve()
             if str(gs_resolved).startswith(str(base_resolved)):
                 updates["gs_splat_path"] = str(gs_resolved)
+
+        potree_meta = reconstruction_result.potree_metadata_path
+        if potree_meta and potree_meta.exists():
+            potree_dir = potree_meta.parent.resolve()
+            if str(potree_dir).startswith(str(base_resolved)):
+                updates["potree_dir"] = str(potree_dir)
+                result["has_potree"] = True
+
         _job_store.update(job_id, **updates)
 
     except Exception as e:
@@ -379,6 +387,45 @@ def get_job_result(job_id: str) -> FileResponse:
         media_type="application/x-ply",
         filename="points.ply",
     )
+
+
+@app.get("/api/jobs/{job_id}/potree/{file_path:path}")
+def get_potree_file(job_id: str, file_path: str) -> FileResponse:
+    """Potree octree 파일을 서빙한다."""
+    job = _job_store.get(job_id)
+    if job is None:
+        raise HTTPException(status_code=404, detail="작업을 찾을 수 없습니다")
+
+    if job["status"] != JobStatus.completed:
+        raise HTTPException(
+            status_code=400,
+            detail=f"작업이 완료되지 않았습니다 (상태: {job['status']})",
+        )
+
+    potree_dir = job.get("potree_dir")
+    if not potree_dir:
+        raise HTTPException(status_code=404, detail="Potree 데이터를 찾을 수 없습니다")
+
+    base_resolved = OUTPUT_BASE_DIR.resolve()
+    potree_resolved = Path(potree_dir).resolve()
+    if not str(potree_resolved).startswith(str(base_resolved)):
+        raise HTTPException(status_code=400, detail="잘못된 파일 경로입니다")
+
+    target = (potree_resolved / file_path).resolve()
+    if not str(target).startswith(str(potree_resolved)):
+        raise HTTPException(status_code=400, detail="잘못된 파일 경로입니다")
+
+    if not target.exists():
+        raise HTTPException(status_code=404, detail="파일을 찾을 수 없습니다")
+
+    content_types = {
+        ".json": "application/json",
+        ".bin": "application/octet-stream",
+        ".las": "application/octet-stream",
+        ".laz": "application/octet-stream",
+    }
+    media_type = content_types.get(target.suffix.lower(), "application/octet-stream")
+    return FileResponse(path=str(target), media_type=media_type)
 
 
 def mount_static_files() -> None:
