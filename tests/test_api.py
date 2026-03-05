@@ -151,6 +151,56 @@ class TestGetJob:
         assert resp.json()["error"] == "COLMAP 실패"
 
 
+class TestListJobs:
+    """GET /api/jobs 테스트."""
+
+    def test_empty_list(self):
+        """Job이 없으면 빈 목록을 반환한다."""
+        resp = client.get("/api/jobs")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["items"] == []
+        assert data["total"] == 0
+
+    def test_list_all_jobs(self):
+        """모든 Job 목록을 반환한다."""
+        _insert_job("aabbccddee01", status=JobStatus.completed)
+        _insert_job("aabbccddee02", status=JobStatus.failed, error="err")
+        _insert_job("aabbccddee03", status=JobStatus.processing)
+        resp = client.get("/api/jobs")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["total"] == 3
+        assert len(data["items"]) == 3
+
+    def test_filter_by_status(self):
+        """상태별 필터링이 동작한다."""
+        _insert_job("aabbccddee04", status=JobStatus.completed)
+        _insert_job("aabbccddee05", status=JobStatus.failed, error="err")
+        resp = client.get("/api/jobs?status=completed")
+        data = resp.json()
+        assert data["total"] == 1
+        assert data["items"][0]["status"] == "completed"
+
+    def test_pagination(self):
+        """페이지네이션이 동작한다."""
+        for i in range(5):
+            _insert_job(f"aabbccddee{i:02d}", status=JobStatus.completed)
+        resp = client.get("/api/jobs?limit=2&offset=0")
+        data = resp.json()
+        assert data["total"] == 5
+        assert len(data["items"]) == 2
+
+        resp2 = client.get("/api/jobs?limit=2&offset=4")
+        data2 = resp2.json()
+        assert len(data2["items"]) == 1
+
+    def test_invalid_status(self):
+        """잘못된 상태 값은 422를 반환한다."""
+        resp = client.get("/api/jobs?status=invalid")
+        assert resp.status_code == 422
+
+
 class TestGetJobResult:
     """GET /api/jobs/{id}/result 테스트."""
 
