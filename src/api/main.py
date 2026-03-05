@@ -25,7 +25,11 @@ from prometheus_fastapi_instrumentator import Instrumentator
 from pydantic import BaseModel
 from rq import Queue
 
-from src.api.auth import get_current_user, get_current_user_or_query_token, set_job_store
+from src.api.auth import (
+    get_current_user,
+    get_current_user_or_query_token,
+    set_job_store,
+)
 from src.api.auth import router as auth_router
 from src.api.config import get_settings
 from src.api.db import JobStore
@@ -351,6 +355,29 @@ class JobListResponse(BaseModel):
     total: int
 
 
+class StorageUsageResponse(BaseModel):
+    """스토리지 사용량 응답."""
+
+    user_id: str
+    total_bytes: int
+    total_mb: float
+    job_count: int
+
+
+class FileInfo(BaseModel):
+    """파일 정보."""
+
+    name: str
+    size: int
+
+
+class JobFilesResponse(BaseModel):
+    """Job 파일 목록 응답."""
+
+    job_id: str
+    files: list[FileInfo]
+
+
 @app.get("/api/jobs", response_model=JobListResponse)
 def list_jobs(
     status: JobStatus | None = Query(None),
@@ -620,21 +647,22 @@ def get_potree_file(
     return FileResponse(path=str(target), media_type=media_type)
 
 
-@app.get("/api/storage/usage")
+@app.get("/api/storage/usage", response_model=StorageUsageResponse)
 def get_storage_usage(
     current_user: dict = Depends(get_current_user),
-) -> dict[str, Any]:
+) -> StorageUsageResponse:
     """현재 사용자의 스토리지 사용량을 반환한다."""
-    return _job_store.get_user_storage_usage(
+    data = _job_store.get_user_storage_usage(
         current_user["id"], OUTPUT_BASE_DIR
     )
+    return StorageUsageResponse(**data)
 
 
-@app.get("/api/jobs/{job_id}/files")
+@app.get("/api/jobs/{job_id}/files", response_model=JobFilesResponse)
 def list_job_files(
     job_id: str,
     current_user: dict = Depends(get_current_user),
-) -> dict[str, Any]:
+) -> JobFilesResponse:
     """완료된 Job의 결과 디렉토리 내 파일 목록을 반환한다."""
     job = _get_user_job(job_id, current_user)
 
@@ -651,21 +679,16 @@ def list_job_files(
 
     result_dir = job_dir / "reconstruction"
     if not result_dir.is_dir():
-        return {"job_id": job_id, "files": []}
+        return JobFilesResponse(job_id=job_id, files=[])
 
     files = []
     base_resolved = result_dir.resolve()
     for f in sorted(result_dir.rglob("*")):
         if f.is_file() and f.resolve().is_relative_to(base_resolved):
             rel = f.relative_to(result_dir)
-            files.append(
-                {
-                    "name": str(rel),
-                    "size": f.stat().st_size,
-                }
-            )
+            files.append(FileInfo(name=str(rel), size=f.stat().st_size))
 
-    return {"job_id": job_id, "files": files}
+    return JobFilesResponse(job_id=job_id, files=files)
 
 
 @app.get("/api/jobs/{job_id}/download/{file_path:path}")

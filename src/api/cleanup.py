@@ -6,7 +6,6 @@ import logging
 import shutil
 import time
 from pathlib import Path
-from typing import Any
 
 from src.api.config import get_settings
 from src.api.db import JobStore

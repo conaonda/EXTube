@@ -33,7 +33,6 @@ class Settings(BaseSettings):
     intermediate_ttl_seconds: int = 7 * 24 * 60 * 60  # 중간 파일 7일
     result_ttl_seconds: int = 30 * 24 * 60 * 60  # 최종 결과물 30일
     cleanup_interval_seconds: int = 6 * 60 * 60  # 정리 주기 6시간
-    cleanup_grace_period_seconds: int = 24 * 60 * 60  # 삭제 전 유예 24시간
 
     # 재시도 설정
     max_retries: int = 3
