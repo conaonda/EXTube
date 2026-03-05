@@ -313,6 +313,41 @@ class JobStore:
             self._conn.commit()
         return count
 
+    def get_completed_jobs_older_than(self, cutoff: float) -> list[dict[str, Any]]:
+        """완료된 Job 중 cutoff 이전에 생성된 것들을 반환한다."""
+        with self._lock:
+            rows = self._conn.execute(
+                "SELECT * FROM jobs WHERE status = 'completed' AND created_at < ?",
+                (cutoff,),
+            ).fetchall()
+        return [dict(row) for row in rows]
+
+    def get_user_storage_usage(
+        self, user_id: str, jobs_dir: Path
+    ) -> dict[str, Any]:
+        """사용자의 스토리지 사용량을 계산한다."""
+        with self._lock:
+            rows = self._conn.execute(
+                "SELECT id, status FROM jobs WHERE user_id = ?", (user_id,)
+            ).fetchall()
+
+        total_bytes = 0
+        job_count = 0
+        for row in rows:
+            job_dir = jobs_dir / row["id"]
+            if job_dir.is_dir():
+                job_count += 1
+                for f in job_dir.rglob("*"):
+                    if f.is_file():
+                        total_bytes += f.stat().st_size
+
+        return {
+            "user_id": user_id,
+            "total_bytes": total_bytes,
+            "total_mb": round(total_bytes / (1024 * 1024), 2),
+            "job_count": job_count,
+        }
+
     def fail_stale_jobs(self, statuses: list[str], error: str) -> int:
         """지정된 상태의 Job을 모두 failed로 전환한다. 전환된 수를 반환한다."""
         placeholders = ", ".join("?" for _ in statuses)

@@ -620,6 +620,16 @@ def get_potree_file(
     return FileResponse(path=str(target), media_type=media_type)
 
 
+@app.get("/api/storage/usage")
+def get_storage_usage(
+    current_user: dict = Depends(get_current_user),
+) -> dict[str, Any]:
+    """현재 사용자의 스토리지 사용량을 반환한다."""
+    return _job_store.get_user_storage_usage(
+        current_user["id"], OUTPUT_BASE_DIR
+    )
+
+
 @app.get("/api/jobs/{job_id}/files")
 def list_job_files(
     job_id: str,
