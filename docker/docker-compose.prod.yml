@@ -188,6 +188,25 @@ services:
         max-size: "50m"
         max-file: "5"
 
+  node-exporter:
+    image: prom/node-exporter:v1.8.0
+    command:
+      - "--path.rootfs=/host"
+      - "--collector.filesystem.mount-points-exclude=^/(sys|proc|dev|host|etc)($$|/)"
+    volumes:
+      - /:/host:ro,rslave
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          cpus: "0.25"
+          memory: 128M
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
   prometheus:
     image: prom/prometheus:v2.51.0
     volumes:
@@ -235,8 +254,17 @@ services:
 
   alertmanager:
     image: prom/alertmanager:v0.27.0
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        sed 's|$${SLACK_WEBHOOK_URL}|'"$$SLACK_WEBHOOK_URL"'|g' \
+          /etc/alertmanager/alertmanager.tmpl.yml \
+          > /tmp/alertmanager.yml \
+        && exec /bin/alertmanager --config.file=/tmp/alertmanager.yml
+    environment:
+      - SLACK_WEBHOOK_URL=${SLACK_WEBHOOK_URL}
     volumes:
-      - ./alertmanager/alertmanager.yml:/etc/alertmanager/alertmanager.yml:ro
+      - ./alertmanager/alertmanager.yml:/etc/alertmanager/alertmanager.tmpl.yml:ro
     restart: unless-stopped
     deploy:
       resources:
