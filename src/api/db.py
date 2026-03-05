@@ -24,6 +24,123 @@ _ALLOWED_UPDATE_FIELDS = {
 }
 
 
+class UserStore:
+    """SQLite 기반 사용자 저장소."""
+
+    def __init__(self, conn: sqlite3.Connection, lock: threading.Lock) -> None:
+        self._conn = conn
+        self._lock = lock
+        self._create_table()
+
+    def _create_table(self) -> None:
+        self._conn.execute("""
+            CREATE TABLE IF NOT EXISTS users (
+                id TEXT PRIMARY KEY,
+                username TEXT NOT NULL UNIQUE,
+                hashed_password TEXT NOT NULL,
+                created_at REAL NOT NULL
+            )
+        """)
+        self._conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_users_username ON users(username)"
+        )
+        self._conn.commit()
+
+    def create(
+        self, user_id: str, username: str, hashed_password: str,
+    ) -> dict[str, Any]:
+        user = {
+            "id": user_id,
+            "username": username,
+            "hashed_password": hashed_password,
+            "created_at": time.time(),
+        }
+        with self._lock:
+            self._conn.execute(
+                "INSERT INTO users (id, username, hashed_password, created_at)"
+                " VALUES (:id, :username, :hashed_password, :created_at)",
+                user,
+            )
+            self._conn.commit()
+        return {"id": user_id, "username": username}
+
+    def get_by_username(self, username: str) -> dict[str, Any] | None:
+        with self._lock:
+            row = self._conn.execute(
+                "SELECT * FROM users WHERE username = ?", (username,)
+            ).fetchone()
+        if row is None:
+            return None
+        return dict(row)
+
+    def get_by_id(self, user_id: str) -> dict[str, Any] | None:
+        with self._lock:
+            row = self._conn.execute(
+                "SELECT * FROM users WHERE id = ?", (user_id,)
+            ).fetchone()
+        if row is None:
+            return None
+        return dict(row)
+
+
+class RefreshTokenStore:
+    """SQLite 기반 refresh token 저장소."""
+
+    def __init__(self, conn: sqlite3.Connection, lock: threading.Lock) -> None:
+        self._conn = conn
+        self._lock = lock
+        self._create_table()
+
+    def _create_table(self) -> None:
+        self._conn.execute("""
+            CREATE TABLE IF NOT EXISTS refresh_tokens (
+                token_id TEXT PRIMARY KEY,
+                user_id TEXT NOT NULL,
+                expires_at REAL NOT NULL,
+                revoked INTEGER NOT NULL DEFAULT 0
+            )
+        """)
+        self._conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_rt_user ON refresh_tokens(user_id)"
+        )
+        self._conn.commit()
+
+    def create(self, token_id: str, user_id: str, expires_at: float) -> None:
+        with self._lock:
+            self._conn.execute(
+                "INSERT INTO refresh_tokens (token_id, user_id, expires_at)"
+                " VALUES (?, ?, ?)",
+                (token_id, user_id, expires_at),
+            )
+            self._conn.commit()
+
+    def get(self, token_id: str) -> dict[str, Any] | None:
+        with self._lock:
+            row = self._conn.execute(
+                "SELECT * FROM refresh_tokens WHERE token_id = ? AND revoked = 0",
+                (token_id,),
+            ).fetchone()
+        if row is None:
+            return None
+        return dict(row)
+
+    def revoke(self, token_id: str) -> None:
+        with self._lock:
+            self._conn.execute(
+                "UPDATE refresh_tokens SET revoked = 1 WHERE token_id = ?",
+                (token_id,),
+            )
+            self._conn.commit()
+
+    def revoke_all_for_user(self, user_id: str) -> None:
+        with self._lock:
+            self._conn.execute(
+                "UPDATE refresh_tokens SET revoked = 1 WHERE user_id = ?",
+                (user_id,),
+            )
+            self._conn.commit()
+
+
 class JobStore:
     """SQLite 기반 Job CRUD 저장소."""
 
@@ -35,6 +152,8 @@ class JobStore:
         self._conn.row_factory = sqlite3.Row
         self._conn.execute("PRAGMA journal_mode=WAL")
         self._create_table()
+        self.users = UserStore(self._conn, self._lock)
+        self.refresh_tokens = RefreshTokenStore(self._conn, self._lock)
 
     def _create_table(self) -> None:
         self._conn.execute("""
@@ -59,12 +178,20 @@ class JobStore:
         """기존 테이블에 누락된 컬럼을 추가한다."""
         rows = self._conn.execute("PRAGMA table_info(jobs)").fetchall()
         columns = {row[1] for row in rows}
-        for col in ("progress", "dense_ply_path", "gs_splat_path", "potree_dir"):
+        for col in (
+            "progress", "dense_ply_path", "gs_splat_path", "potree_dir", "user_id",
+        ):
             if col not in columns:
                 self._conn.execute(f"ALTER TABLE jobs ADD COLUMN {col} TEXT")
+        if "user_id" not in columns:
+            self._conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_jobs_user_id ON jobs(user_id)"
+            )
         self._conn.commit()
 
-    def create(self, job_id: str, status: str, url: str) -> dict[str, Any]:
+    def create(
+        self, job_id: str, status: str, url: str, user_id: str | None = None,
+    ) -> dict[str, Any]:
         job = {
             "id": job_id,
             "status": status,
@@ -76,16 +203,17 @@ class JobStore:
             "gs_splat_path": None,
             "potree_dir": None,
             "progress": None,
+            "user_id": user_id,
             "created_at": time.time(),
         }
         sql = (
             "INSERT INTO jobs"
             " (id, status, url, error, result, ply_path,"
             " dense_ply_path, gs_splat_path, potree_dir,"
-            " progress, created_at)"
+            " progress, user_id, created_at)"
             " VALUES (:id, :status, :url, :error, :result,"
             " :ply_path, :dense_ply_path, :gs_splat_path,"
-            " :potree_dir, :progress, :created_at)"
+            " :potree_dir, :progress, :user_id, :created_at)"
         )
         with self._lock:
             self._conn.execute(sql, job)
@@ -97,13 +225,18 @@ class JobStore:
         status: str | None = None,
         limit: int = 20,
         offset: int = 0,
+        user_id: str | None = None,
     ) -> dict[str, Any]:
         """Job 목록을 조회한다. 최신순 정렬, 페이지네이션 지원."""
         params: list[Any] = []
-        where = ""
+        conditions: list[str] = []
         if status is not None:
-            where = " WHERE status = ?"
+            conditions.append("status = ?")
             params.append(status)
+        if user_id is not None:
+            conditions.append("user_id = ?")
+            params.append(user_id)
+        where = (" WHERE " + " AND ".join(conditions)) if conditions else ""
 
         with self._lock:
             count_row = self._conn.execute(

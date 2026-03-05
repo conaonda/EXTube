@@ -6,7 +6,7 @@ from unittest.mock import patch
 
 import pytest
 from fastapi.testclient import TestClient
-from src.api.main import app
+from src.api.main import _job_store, app
 from src.api.rate_limit import RateLimitMiddleware
 
 client = TestClient(app)
@@ -17,7 +17,6 @@ def _reset_rate_limiter():
     for middleware in app.user_middleware:
         if middleware.cls is RateLimitMiddleware:
             break
-    # middleware_stack에서 직접 찾아 reset
     stack = app.middleware_stack
     while stack is not None:
         if isinstance(stack, RateLimitMiddleware):
@@ -26,12 +25,29 @@ def _reset_rate_limiter():
         stack = getattr(stack, "app", None)
 
 
+def _get_auth_headers() -> dict[str, str]:
+    """테스트용 인증 헤더를 반환한다."""
+    from passlib.context import CryptContext
+
+    pwd = CryptContext(schemes=["bcrypt"], deprecated="auto")
+    _job_store._conn.execute("DELETE FROM users")
+    _job_store._conn.commit()
+    _job_store.users.create("rl_test_user", "rltestuser", pwd.hash("testpass123"))
+    resp = client.post(
+        "/auth/login", data={"username": "rltestuser", "password": "testpass123"},
+    )
+    return {"Authorization": f"Bearer {resp.json()['access_token']}"}
+
+
 @pytest.fixture(autouse=True)
 def _reset_limiter():
     """각 테스트 전 rate limiter 상태를 초기화한다."""
     _reset_rate_limiter()
     yield
     _reset_rate_limiter()
+    _job_store._conn.execute("DELETE FROM users")
+    _job_store._conn.execute("DELETE FROM refresh_tokens")
+    _job_store._conn.commit()
 
 
 class TestRateLimitMiddleware:
@@ -55,6 +71,8 @@ class TestRateLimitMiddleware:
 
     def test_post_jobs_strict_limit(self):
         """POST /api/jobs는 5 req/hour로 제한된다."""
+        headers = _get_auth_headers()
+        _reset_rate_limiter()
         with (
             patch("src.api.main.validate_youtube_url", return_value=True),
             patch("src.api.main._executor") as mock_executor,
@@ -65,12 +83,14 @@ class TestRateLimitMiddleware:
                 resp = client.post(
                     "/api/jobs",
                     json={"url": "https://www.youtube.com/watch?v=dQw4w9WgXcQ"},
+                    headers=headers,
                 )
                 assert resp.status_code == 201
 
             resp = client.post(
                 "/api/jobs",
                 json={"url": "https://www.youtube.com/watch?v=dQw4w9WgXcQ"},
+                headers=headers,
             )
             assert resp.status_code == 429
 
