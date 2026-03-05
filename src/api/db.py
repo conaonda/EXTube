@@ -351,13 +351,13 @@ class JobStore:
             "job_count": job_count,
         }
 
-    def find_completed_by_url(self, url: str) -> dict[str, Any] | None:
-        """동일 URL로 완료된 가장 최근 Job을 반환한다."""
+    def find_completed_by_url(self, url: str, user_id: str) -> dict[str, Any] | None:
+        """동일 URL로 해당 유저가 완료한 가장 최근 Job을 반환한다."""
         with self._lock:
             row = self._conn.execute(
-                "SELECT * FROM jobs WHERE url = ? AND status = 'completed'"
+                "SELECT * FROM jobs WHERE url = ? AND user_id = ? AND status = 'completed'"
                 " ORDER BY created_at DESC LIMIT 1",
-                (url,),
+                (url, user_id),
             ).fetchone()
         if row is None:
             return None
