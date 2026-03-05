@@ -54,9 +54,7 @@ class SecurityHeadersMiddleware:
             if message["type"] == "http.response.start":
                 headers = list(message.get("headers", []))
                 # 서버 정보 헤더 제거
-                headers = [
-                    (k, v) for k, v in headers if k.lower() != b"server"
-                ]
+                headers = [(k, v) for k, v in headers if k.lower() != b"server"]
                 headers.extend(security_headers)
                 message = {**message, "headers": headers}
             await send(message)
