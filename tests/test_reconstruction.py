@@ -12,6 +12,7 @@ from src.reconstruction.reconstruction import (
     feature_extractor,
     image_undistorter,
     patch_match_stereo,
+    potree_convert,
     reconstruct,
     sparse_reconstructor,
     stereo_fusion,
@@ -419,3 +420,67 @@ class TestCountPlyPoints:
         ply = tmp_path / "test.ply"
         ply.write_text("ply\nformat ascii 1.0\nend_header\n")
         assert _count_ply_points(ply) == 0
+
+
+class TestPotreeConvert:
+    """potree_convert 함수 테스트."""
+
+    @patch("src.reconstruction.reconstruction.shutil.which")
+    def test_no_potree_converter(self, mock_which, tmp_path):
+        """PotreeConverter가 없으면 None을 반환한다."""
+        mock_which.return_value = None
+        ply = tmp_path / "test.ply"
+        ply.write_text("ply data")
+        result = potree_convert(ply, tmp_path / "output")
+        assert result is None
+
+    def test_missing_ply_file(self, tmp_path):
+        """PLY 파일이 없으면 FileNotFoundError."""
+        with patch(
+            "src.reconstruction.reconstruction.shutil.which",
+            return_value="/usr/bin/PotreeConverter",
+        ):
+            with pytest.raises(FileNotFoundError):
+                potree_convert(
+                    tmp_path / "missing.ply",
+                    tmp_path / "output",
+                )
+
+    @patch("src.reconstruction.reconstruction.subprocess.run")
+    def test_success(self, mock_run, tmp_path):
+        """성공 시 metadata.json 경로를 반환한다."""
+        with patch(
+            "src.reconstruction.reconstruction.shutil.which",
+            return_value="/usr/bin/PotreeConverter",
+        ):
+            mock_run.return_value = MagicMock(
+                returncode=0,
+                stdout="",
+                stderr="",
+            )
+            ply = tmp_path / "test.ply"
+            ply.write_text("ply data")
+            output_dir = tmp_path / "output"
+            output_dir.mkdir()
+            meta = output_dir / "metadata.json"
+            meta.write_text("{}")
+
+            result = potree_convert(ply, output_dir)
+            assert result == meta
+
+    @patch("src.reconstruction.reconstruction.subprocess.run")
+    def test_failure(self, mock_run, tmp_path):
+        """PotreeConverter 실패 시 RuntimeError."""
+        with patch(
+            "src.reconstruction.reconstruction.shutil.which",
+            return_value="/usr/bin/PotreeConverter",
+        ):
+            mock_run.return_value = MagicMock(
+                returncode=1,
+                stderr="error",
+            )
+            ply = tmp_path / "test.ply"
+            ply.write_text("ply data")
+
+            with pytest.raises(RuntimeError, match="PotreeConverter"):
+                potree_convert(ply, tmp_path / "output")

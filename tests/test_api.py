@@ -228,6 +228,54 @@ class TestHealth:
         assert resp.status_code == 503
 
 
+class TestGetPotreeFile:
+    """GET /api/jobs/{id}/potree/{file_path} 테스트."""
+
+    def test_not_found(self):
+        """존재하지 않는 작업은 404를 반환한다."""
+        resp = client.get("/api/jobs/nonexistent/potree/metadata.json")
+        assert resp.status_code == 404
+
+    def test_not_completed(self):
+        """완료되지 않은 작업은 400을 반환한다."""
+        _insert_job("aabbccddeea1", status=JobStatus.processing)
+        resp = client.get("/api/jobs/aabbccddeea1/potree/metadata.json")
+        assert resp.status_code == 400
+
+    def test_no_potree_dir(self):
+        """potree_dir이 없으면 404를 반환한다."""
+        _insert_job("aabbccddeea2", status=JobStatus.completed)
+        resp = client.get("/api/jobs/aabbccddeea2/potree/metadata.json")
+        assert resp.status_code == 404
+
+    @patch("src.api.main.OUTPUT_BASE_DIR")
+    def test_serve_potree_file(self, mock_base_dir, tmp_path):
+        """Potree 파일을 서빙한다."""
+        mock_base_dir.resolve.return_value = tmp_path.resolve()
+        potree_dir = tmp_path / "potree"
+        potree_dir.mkdir()
+        meta = potree_dir / "metadata.json"
+        meta.write_text('{"version": "2.0"}')
+
+        _insert_job("aabbccddeea3", status=JobStatus.completed)
+        _job_store.update("aabbccddeea3", potree_dir=str(potree_dir))
+        resp = client.get("/api/jobs/aabbccddeea3/potree/metadata.json")
+        assert resp.status_code == 200
+        assert resp.json() == {"version": "2.0"}
+
+    @patch("src.api.main.OUTPUT_BASE_DIR")
+    def test_path_traversal_blocked(self, mock_base_dir, tmp_path):
+        """경로 순회 공격이 차단된다."""
+        mock_base_dir.resolve.return_value = tmp_path.resolve()
+        potree_dir = tmp_path / "potree"
+        potree_dir.mkdir()
+
+        _insert_job("aabbccddeea4", status=JobStatus.completed)
+        _job_store.update("aabbccddeea4", potree_dir=str(potree_dir))
+        resp = client.get("/api/jobs/aabbccddeea4/potree/../../etc/passwd")
+        assert resp.status_code in (400, 404)
+
+
 class TestStreamJob:
     """GET /api/jobs/{id}/stream 테스트."""
 

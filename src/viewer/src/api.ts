@@ -7,6 +7,7 @@ export interface JobResult {
   num_registered: number
   num_points3d: number
   steps_completed: string[]
+  has_potree?: boolean
 }
 
 export interface Job {
@@ -40,4 +41,8 @@ export async function getJob(jobId: string): Promise<Job> {
 
 export function getResultUrl(jobId: string): string {
   return `${API_BASE}/jobs/${jobId}/result`
+}
+
+export function getPotreeUrl(jobId: string): string {
+  return `${API_BASE}/jobs/${jobId}/potree/metadata.json`
 }
