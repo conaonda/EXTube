@@ -8,6 +8,7 @@ import type { Job } from './api'
 import { useJobWebSocket } from './hooks/useJobWebSocket'
 import type { JobProgress, WsJobMessage } from './hooks/useJobWebSocket'
 import { useToast } from './hooks/useToast'
+import './App.css'
 
 export default function App() {
   const { jobId } = useParams<{ jobId?: string }>()
@@ -142,47 +143,16 @@ export default function App() {
 
   return (
     <>
-      <div
-        style={{
-          position: 'absolute',
-          top: '1rem',
-          left: '1rem',
-          right: '1rem',
-          zIndex: 10,
-          display: 'flex',
-          flexDirection: 'column',
-          gap: '0.5rem',
-        }}
-      >
+      <div className="app-overlay" role="region" aria-label="작업 제어 패널">
         <JobForm onSubmit={handleSubmit} disabled={isProcessing} />
         {error && (
-          <div
-            style={{
-              padding: '0.5rem 0.75rem',
-              background: '#fef2f2',
-              borderRadius: '4px',
-              color: '#dc2626',
-              fontSize: '0.875rem',
-              display: 'flex',
-              alignItems: 'center',
-              gap: '0.5rem',
-            }}
-          >
-            <span style={{ flex: 1 }}>{error}</span>
+          <div className="error-bar" role="alert">
+            <span className="error-bar-message">{error}</span>
             {lastFailedUrl && (
               <button
+                className="error-bar-retry"
                 onClick={() => handleSubmit(lastFailedUrl)}
-                style={{
-                  padding: '0.25rem 0.5rem',
-                  background: '#dc2626',
-                  color: '#fff',
-                  border: 'none',
-                  borderRadius: '4px',
-                  cursor: 'pointer',
-                  fontSize: '0.75rem',
-                  fontWeight: 600,
-                  whiteSpace: 'nowrap',
-                }}
+                aria-label="작업 재시도"
               >
                 재시도
               </button>

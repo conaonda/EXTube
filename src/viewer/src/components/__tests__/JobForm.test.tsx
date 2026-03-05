@@ -7,18 +7,18 @@ describe('JobForm', () => {
   it('renders input and submit button', () => {
     render(<JobForm onSubmit={vi.fn()} disabled={false} />)
     expect(screen.getByPlaceholderText('YouTube URL을 입력하세요')).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: '3D 복원' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '3D 복원 시작' })).toBeInTheDocument()
   })
 
   it('submit button is disabled when input is empty', () => {
     render(<JobForm onSubmit={vi.fn()} disabled={false} />)
-    expect(screen.getByRole('button', { name: '3D 복원' })).toBeDisabled()
+    expect(screen.getByRole('button', { name: '3D 복원 시작' })).toBeDisabled()
   })
 
   it('submit button is disabled when disabled prop is true', async () => {
     render(<JobForm onSubmit={vi.fn()} disabled={true} />)
     expect(screen.getByPlaceholderText('YouTube URL을 입력하세요')).toBeDisabled()
-    expect(screen.getByRole('button', { name: '3D 복원' })).toBeDisabled()
+    expect(screen.getByRole('button', { name: '3D 복원 시작' })).toBeDisabled()
   })
 
   it('enables submit button when URL is entered', async () => {
@@ -26,7 +26,7 @@ describe('JobForm', () => {
     render(<JobForm onSubmit={vi.fn()} disabled={false} />)
 
     await user.type(screen.getByPlaceholderText('YouTube URL을 입력하세요'), 'https://youtube.com/watch?v=test')
-    expect(screen.getByRole('button', { name: '3D 복원' })).toBeEnabled()
+    expect(screen.getByRole('button', { name: '3D 복원 시작' })).toBeEnabled()
   })
 
   it('calls onSubmit with trimmed URL on form submission', async () => {
@@ -35,7 +35,7 @@ describe('JobForm', () => {
     render(<JobForm onSubmit={onSubmit} disabled={false} />)
 
     await user.type(screen.getByPlaceholderText('YouTube URL을 입력하세요'), '  https://youtube.com/watch?v=test  ')
-    await user.click(screen.getByRole('button', { name: '3D 복원' }))
+    await user.click(screen.getByRole('button', { name: '3D 복원 시작' }))
 
     expect(onSubmit).toHaveBeenCalledWith('https://youtube.com/watch?v=test')
   })
@@ -47,6 +47,6 @@ describe('JobForm', () => {
 
     await user.type(screen.getByPlaceholderText('YouTube URL을 입력하세요'), '   ')
     // Button should still be disabled since trim() is empty
-    expect(screen.getByRole('button', { name: '3D 복원' })).toBeDisabled()
+    expect(screen.getByRole('button', { name: '3D 복원 시작' })).toBeDisabled()
   })
 })
