@@ -179,7 +179,7 @@ class TestJobIsolation:
         headers_a = _auth_header("user_a", "password123")
         headers_b = _auth_header("user_b", "password456")
 
-        with patch("src.api.main._run_pipeline"):
+        with patch("src.api.main._enqueue_job"):
             resp = client.post(
                 "/api/jobs",
                 json={"url": "https://www.youtube.com/watch?v=dQw4w9WgXcQ"},
@@ -197,7 +197,7 @@ class TestJobIsolation:
         headers_a = _auth_header("user_a", "password123")
         headers_b = _auth_header("user_b", "password456")
 
-        with patch("src.api.main._run_pipeline"):
+        with patch("src.api.main._enqueue_job"):
             resp = client.post(
                 "/api/jobs",
                 json={"url": "https://www.youtube.com/watch?v=dQw4w9WgXcQ"},
@@ -214,7 +214,7 @@ class TestJobIsolation:
         headers_a = _auth_header("user_a", "password123")
         headers_b = _auth_header("user_b", "password456")
 
-        with patch("src.api.main._run_pipeline"):
+        with patch("src.api.main._enqueue_job"):
             client.post(
                 "/api/jobs",
                 json={"url": "https://www.youtube.com/watch?v=dQw4w9WgXcQ"},

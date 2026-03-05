@@ -6,7 +6,7 @@ from unittest.mock import patch
 
 import pytest
 from fastapi.testclient import TestClient
-from src.api.main import _job_store, app
+from src.api.main import JobStatus, _job_store, app
 from src.api.rate_limit import RateLimitMiddleware
 
 client = TestClient(app)
@@ -76,10 +76,8 @@ class TestRateLimitMiddleware:
         _reset_rate_limiter()
         with (
             patch("src.api.main.validate_youtube_url", return_value=True),
-            patch("src.api.main._executor") as mock_executor,
+            patch("src.api.main._enqueue_job"),
         ):
-            mock_executor.submit.return_value = None
-
             for _ in range(5):
                 resp = client.post(
                     "/api/jobs",
@@ -87,6 +85,8 @@ class TestRateLimitMiddleware:
                     headers=headers,
                 )
                 assert resp.status_code == 201
+                # 동시 실행 제한에 걸리지 않도록 Job을 완료 처리
+                _job_store.update(resp.json()["id"], status=JobStatus.completed)
 
             resp = client.post(
                 "/api/jobs",

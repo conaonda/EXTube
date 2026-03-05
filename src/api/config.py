@@ -18,6 +18,12 @@ class Settings(BaseSettings):
     gpu_concurrency: int = 1
     job_ttl_seconds: int = 24 * 60 * 60  # 24시간
     sse_timeout_seconds: int = 30 * 60  # 30분
+    max_jobs_per_user: int = 2  # 사용자별 동시 실행 제한
+
+    # Redis / RQ
+    redis_url: str = "redis://localhost:6379"
+    rq_queue_name: str = "gpu"
+    rq_job_timeout: int = 3 * 60 * 60  # 3시간
 
     # 경로
     output_base_dir: Path = Path("data/jobs")

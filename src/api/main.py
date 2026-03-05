@@ -3,54 +3,82 @@
 from __future__ import annotations
 
 import asyncio
-import atexit
 import json
 import logging
 import re
 import shutil
-import threading
 import time
 import uuid
 from collections.abc import AsyncIterator
-from concurrent.futures import ThreadPoolExecutor
 from contextlib import asynccontextmanager
 from enum import StrEnum
 from pathlib import Path
 from typing import Any
 
+import redis
 from fastapi import Depends, FastAPI, HTTPException, Query, WebSocket
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
+from rq import Queue
 
 from src.api.auth import get_current_user, set_job_store
 from src.api.auth import router as auth_router
 from src.api.config import get_settings
 from src.api.db import JobStore
 from src.api.rate_limit import RateLimitMiddleware, RateLimitRule
-from src.api.ws import broadcast_progress, websocket_job_handler
+from src.api.tasks import run_pipeline
+from src.api.ws import (
+    start_redis_subscriber,
+    stop_redis_subscriber,
+    websocket_job_handler,
+)
 from src.downloader import validate_youtube_url
-from src.extractor import extract_and_filter
-from src.reconstruction import reconstruct
 
 logger = logging.getLogger(__name__)
 
 _settings = get_settings()
 
 
+def _get_redis_connection() -> redis.Redis:
+    return redis.from_url(_settings.redis_url)
+
+
+def _get_queue() -> Queue:
+    return Queue(
+        _settings.rq_queue_name,
+        connection=_get_redis_connection(),
+        default_timeout=_settings.rq_job_timeout,
+    )
+
+
 @asynccontextmanager
 async def _lifespan(application: FastAPI) -> AsyncIterator[None]:
-    """서버 시작 시 만료된 Job을 정리한다."""
+    """서버 시작 시 만료된 Job 정리 및 stale Job 복구."""
     deleted = _job_store.cleanup_expired(
         _settings.output_base_dir, ttl=_settings.job_ttl_seconds
     )
     if deleted:
         logger.info("만료된 Job %d개 정리됨", deleted)
+
+    # 서버 재시작 시 미완료 Job을 failed로 전환
+    recovered = _job_store.fail_stale_jobs(
+        statuses=["pending", "processing"],
+        error="서버 재시작으로 인해 작업이 중단되었습니다. 재제출해 주세요.",
+    )
+    if recovered:
+        logger.info("재시작 복구: %d개 Job을 failed로 전환", recovered)
+
+    # Redis pub/sub subscriber 시작
+    start_redis_subscriber(_settings.redis_url)
+
     yield
 
+    stop_redis_subscriber()
 
-app = FastAPI(title="EXTube API", version="0.4.0", lifespan=_lifespan)
+
+app = FastAPI(title="EXTube API", version="0.5.0", lifespan=_lifespan)
 
 # 인증 라우터
 app.include_router(auth_router)
@@ -76,9 +104,7 @@ app.add_middleware(
 OUTPUT_BASE_DIR = _settings.output_base_dir
 STATIC_DIR = Path(__file__).resolve().parent.parent / "viewer" / "dist"
 
-_MAX_WORKERS = _settings.max_workers
 _SSE_TIMEOUT_SECONDS = _settings.sse_timeout_seconds
-_gpu_semaphore = threading.Semaphore(_settings.gpu_concurrency)
 
 
 class JobStatus(StrEnum):
@@ -119,10 +145,6 @@ class JobResponse(BaseModel):
 _job_store = JobStore(db_path=_settings.db_path)
 set_job_store(_job_store)
 
-# ThreadPoolExecutor로 동시 작업 수 제한
-_executor = ThreadPoolExecutor(max_workers=_MAX_WORKERS)
-atexit.register(_executor.shutdown, wait=True)
-
 
 def _sanitize_for_message(value: str) -> str:
     """사용자 입력을 에러 메시지에 포함하기 전에 sanitize한다."""
@@ -141,104 +163,23 @@ def _validate_job_path(job_id: str) -> Path:
     return job_dir
 
 
-def _run_pipeline(job_id: str, params: JobCreate) -> None:
-    """백그라운드에서 파이프라인을 실행한다."""
-    from src.downloader import download_video
-
-    _job_store.update(job_id, status=JobStatus.processing)
-
-    job_dir = _validate_job_path(job_id)
-
-    def _update_progress(stage: str, percent: int, message: str) -> None:
-        progress = {"stage": stage, "percent": percent, "message": message}
-        _job_store.update(job_id, progress=progress)
-        broadcast_progress(job_id, {"status": "processing", "progress": progress})
-
-    try:
-        # 1. 다운로드
-        _update_progress("download", 0, "영상 다운로드 시작")
-        download_dir = job_dir / "download"
-        download_result = download_video(
-            params.url, download_dir, max_height=params.max_height
-        )
-        _update_progress("download", 100, "영상 다운로드 완료")
-
-        # 2. 프레임 추출
-        _update_progress("extraction", 0, "프레임 추출 시작")
-        extraction_dir = job_dir / "extraction"
-        extraction_result = extract_and_filter(
-            download_result.video_path,
-            extraction_dir,
-            interval=params.frame_interval,
-            blur_threshold=params.blur_threshold,
-        )
-        _update_progress("extraction", 100, "프레임 추출 완료")
-
-        # 3. 3D 복원 (GPU semaphore로 동시성 제한)
-        _update_progress("reconstruction", 0, "GPU 대기 중")
-        reconstruction_dir = job_dir / "reconstruction"
-        frames_dir = extraction_dir / "frames"
-        with _gpu_semaphore:
-            _update_progress("reconstruction", 0, "3D 복원 시작")
-            reconstruction_result = reconstruct(
-                frames_dir,
-                reconstruction_dir,
-                camera_model=params.camera_model,
-                dense=params.dense,
-                max_image_size=params.max_image_size,
-                gaussian_splatting=params.gaussian_splatting,
-                gs_max_iterations=params.gs_max_iterations,
-            )
-
-        _update_progress("reconstruction", 100, "3D 복원 완료")
-
-        # PLY 파일 경로 검증
-        ply_path = reconstruction_dir / "points.ply"
-        ply_resolved = ply_path.resolve()
-        base_resolved = OUTPUT_BASE_DIR.resolve()
-
-        result = {
-            "video_title": download_result.title,
-            "total_frames": extraction_result.total_extracted,
-            "filtered_frames": extraction_result.total_filtered,
-            "num_registered": reconstruction_result.num_registered,
-            "num_points3d": reconstruction_result.num_points3d,
-            "steps_completed": reconstruction_result.steps_completed,
-        }
-        if reconstruction_result.num_dense_points is not None:
-            result["num_dense_points"] = reconstruction_result.num_dense_points
-        if reconstruction_result.gs_num_iterations is not None:
-            result["gs_num_iterations"] = reconstruction_result.gs_num_iterations
-        updates: dict[str, Any] = {"status": JobStatus.completed, "result": result}
-        if ply_path.exists() and ply_resolved.is_relative_to(base_resolved):
-            updates["ply_path"] = str(ply_resolved)
-
-        dense_ply_path = reconstruction_dir / "dense_points.ply"
-        if dense_ply_path.exists():
-            dense_resolved = dense_ply_path.resolve()
-            if dense_resolved.is_relative_to(base_resolved):
-                updates["dense_ply_path"] = str(dense_resolved)
-
-        gs_ply = reconstruction_result.gs_ply_path
-        if gs_ply and gs_ply.exists():
-            gs_resolved = gs_ply.resolve()
-            if gs_resolved.is_relative_to(base_resolved):
-                updates["gs_splat_path"] = str(gs_resolved)
-
-        potree_meta = reconstruction_result.potree_metadata_path
-        if potree_meta and potree_meta.exists():
-            potree_dir = potree_meta.parent.resolve()
-            if potree_dir.is_relative_to(base_resolved):
-                updates["potree_dir"] = str(potree_dir)
-                result["has_potree"] = True
-
-        _job_store.update(job_id, **updates)
-        broadcast_progress(job_id, {"status": "completed", "result": result})
-
-    except Exception as e:
-        logger.exception("작업 %s 실패", job_id)
-        _job_store.update(job_id, status=JobStatus.failed, error=str(e))
-        broadcast_progress(job_id, {"status": "failed", "error": str(e)})
+def _enqueue_job(job_id: str, body: JobCreate) -> None:
+    """RQ 큐에 파이프라인 태스크를 추가한다."""
+    q = _get_queue()
+    q.enqueue(
+        run_pipeline,
+        job_id=job_id,
+        url=body.url,
+        max_height=body.max_height,
+        frame_interval=body.frame_interval,
+        blur_threshold=body.blur_threshold,
+        camera_model=body.camera_model,
+        dense=body.dense,
+        max_image_size=body.max_image_size,
+        gaussian_splatting=body.gaussian_splatting,
+        gs_max_iterations=body.gs_max_iterations,
+        job_timeout=_settings.rq_job_timeout,
+    )
 
 
 # --- Health 엔드포인트 ---
@@ -252,7 +193,7 @@ def health() -> dict[str, str]:
 
 @app.get("/health/ready")
 def health_ready() -> dict[str, Any]:
-    """준비 상태 확인 — DB 연결 및 COLMAP 바이너리 존재 여부."""
+    """준비 상태 확인 — DB 연결, Redis 연결 및 COLMAP 바이너리 존재 여부."""
     checks: dict[str, Any] = {}
 
     # DB 연결 확인
@@ -261,6 +202,15 @@ def health_ready() -> dict[str, Any]:
         checks["database"] = "ok"
     except Exception as e:
         checks["database"] = f"error: {e}"
+
+    # Redis 연결 확인
+    try:
+        conn = _get_redis_connection()
+        conn.ping()
+        conn.close()
+        checks["redis"] = "ok"
+    except Exception as e:
+        checks["redis"] = f"error: {e}"
 
     # COLMAP 바이너리 확인
     colmap_path = shutil.which("colmap")
@@ -304,10 +254,22 @@ def create_job(
             detail=f"유효하지 않은 유튜브 URL: {sanitized_url}",
         )
 
+    # 사용자별 동시 실행 제한 확인
+    active_statuses = [JobStatus.pending, JobStatus.processing]
+    active_count = 0
+    for s in active_statuses:
+        result = _job_store.list(status=s.value, user_id=current_user["id"], limit=0)
+        active_count += result["total"]
+    if active_count >= _settings.max_jobs_per_user:
+        raise HTTPException(
+            status_code=429,
+            detail=f"동시 실행 제한 초과: 최대 {_settings.max_jobs_per_user}개",
+        )
+
     job_id = uuid.uuid4().hex[:12]
     _job_store.create(job_id, JobStatus.pending, body.url, user_id=current_user["id"])
 
-    _executor.submit(_run_pipeline, job_id, body)
+    _enqueue_job(job_id, body)
 
     return JobResponse(
         id=job_id,

@@ -1,4 +1,12 @@
 services:
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    command: redis-server --appendonly yes
+
   app:
     build:
       context: ..
@@ -9,6 +17,22 @@ services:
       - ..:/app
     environment:
       - PYTHONUNBUFFERED=1
+      - EXTUBE_REDIS_URL=redis://redis:6379
+    depends_on:
+      - redis
+
+  rq-worker:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+    command: rq worker gpu --url redis://redis:6379
+    volumes:
+      - ..:/app
+    environment:
+      - PYTHONUNBUFFERED=1
+      - EXTUBE_REDIS_URL=redis://redis:6379
+    depends_on:
+      - redis
 
   app-gpu:
     build:
@@ -21,6 +45,7 @@ services:
     environment:
       - PYTHONUNBUFFERED=1
       - NVIDIA_VISIBLE_DEVICES=all
+      - EXTUBE_REDIS_URL=redis://redis:6379
     deploy:
       resources:
         reservations:
@@ -28,5 +53,33 @@ services:
             - driver: nvidia
               count: all
               capabilities: [gpu]
+    depends_on:
+      - redis
     profiles:
       - gpu
+
+  rq-worker-gpu:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.gpu
+    command: rq worker gpu --url redis://redis:6379
+    volumes:
+      - ..:/app
+    environment:
+      - PYTHONUNBUFFERED=1
+      - NVIDIA_VISIBLE_DEVICES=all
+      - EXTUBE_REDIS_URL=redis://redis:6379
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    depends_on:
+      - redis
+    profiles:
+      - gpu
+
+volumes:
+  redis_data:

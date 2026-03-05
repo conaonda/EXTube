@@ -95,7 +95,7 @@ class TestCreateJob:
         assert resp.status_code == 400
         assert "유효하지 않은" in resp.json()["detail"]
 
-    @patch("src.api.main._run_pipeline")
+    @patch("src.api.main._enqueue_job")
     def test_valid_url_creates_job(self, mock_run):
         """유효한 URL로 작업을 생성한다."""
         headers = _get_auth_headers()
@@ -110,7 +110,7 @@ class TestCreateJob:
         assert data["url"] == ("https://www.youtube.com/watch?v=dQw4w9WgXcQ")
         assert _job_store.get(data["id"]) is not None
 
-    @patch("src.api.main._run_pipeline")
+    @patch("src.api.main._enqueue_job")
     def test_custom_params(self, mock_run):
         """커스텀 파라미터가 전달된다."""
         headers = _get_auth_headers()
@@ -150,6 +150,76 @@ class TestCreateJob:
         assert "'" not in detail
 
 
+class TestJobConcurrencyLimit:
+    """사용자별 동시 실행 제한 테스트."""
+
+    @patch("src.api.main._enqueue_job")
+    def test_within_limit_succeeds(self, mock_run):
+        """제한 이내의 Job 생성은 성공한다."""
+        headers = _get_auth_headers()
+        url = "https://www.youtube.com/watch?v=dQw4w9WgXcQ"
+        # 기본 제한은 2개
+        resp1 = client.post("/api/jobs", json={"url": url}, headers=headers)
+        assert resp1.status_code == 201
+        resp2 = client.post("/api/jobs", json={"url": url}, headers=headers)
+        assert resp2.status_code == 201
+
+    @patch("src.api.main._enqueue_job")
+    def test_exceeding_limit_returns_429(self, mock_run):
+        """제한 초과 시 429를 반환한다."""
+        headers = _get_auth_headers()
+        url = "https://www.youtube.com/watch?v=dQw4w9WgXcQ"
+        # 2개 생성 (pending 상태)
+        client.post("/api/jobs", json={"url": url}, headers=headers)
+        client.post("/api/jobs", json={"url": url}, headers=headers)
+        # 3번째는 거부
+        resp = client.post("/api/jobs", json={"url": url}, headers=headers)
+        assert resp.status_code == 429
+        assert "동시 실행 제한 초과" in resp.json()["detail"]
+
+    @patch("src.api.main._enqueue_job")
+    def test_completed_jobs_not_counted(self, mock_run):
+        """완료된 Job은 제한에 포함되지 않는다."""
+        headers = _get_auth_headers()
+        url = "https://www.youtube.com/watch?v=dQw4w9WgXcQ"
+        # 2개 생성 후 1개 완료
+        resp1 = client.post("/api/jobs", json={"url": url}, headers=headers)
+        client.post("/api/jobs", json={"url": url}, headers=headers)
+        job_id = resp1.json()["id"]
+        _job_store.update(job_id, status=JobStatus.completed)
+        # 완료된 건 제외하므로 새 Job 생성 가능
+        resp = client.post("/api/jobs", json={"url": url}, headers=headers)
+        assert resp.status_code == 201
+
+    @patch("src.api.main._enqueue_job")
+    def test_failed_jobs_not_counted(self, mock_run):
+        """실패한 Job은 제한에 포함되지 않는다."""
+        headers = _get_auth_headers()
+        url = "https://www.youtube.com/watch?v=dQw4w9WgXcQ"
+        # 2개 생성 후 1개 실패
+        resp1 = client.post("/api/jobs", json={"url": url}, headers=headers)
+        client.post("/api/jobs", json={"url": url}, headers=headers)
+        job_id = resp1.json()["id"]
+        _job_store.update(job_id, status=JobStatus.failed, error="test error")
+        # 실패한 건 제외하므로 새 Job 생성 가능
+        resp = client.post("/api/jobs", json={"url": url}, headers=headers)
+        assert resp.status_code == 201
+
+    @patch("src.api.main._enqueue_job")
+    def test_processing_jobs_counted(self, mock_run):
+        """처리 중인 Job도 제한에 포함된다."""
+        headers = _get_auth_headers()
+        url = "https://www.youtube.com/watch?v=dQw4w9WgXcQ"
+        # 1개 생성 후 processing으로 전환
+        resp1 = client.post("/api/jobs", json={"url": url}, headers=headers)
+        _job_store.update(resp1.json()["id"], status=JobStatus.processing)
+        # 1개 더 pending으로 생성
+        client.post("/api/jobs", json={"url": url}, headers=headers)
+        # 3번째 (pending 1 + processing 1 = 2) 거부
+        resp = client.post("/api/jobs", json={"url": url}, headers=headers)
+        assert resp.status_code == 429
+
+
 class TestGetJob:
     """GET /api/jobs/{id} 테스트."""
 
@@ -159,7 +229,7 @@ class TestGetJob:
         resp = client.get("/api/jobs/nonexistent", headers=headers)
         assert resp.status_code == 404
 
-    @patch("src.api.main._run_pipeline")
+    @patch("src.api.main._enqueue_job")
     def test_get_pending_job(self, mock_run):
         """생성된 작업의 상태를 조회한다."""
         headers = _get_auth_headers()
@@ -433,7 +503,7 @@ class TestHealth:
         """/health/ready는 DB가 정상이면 checks에 database=ok를 포함한다."""
         resp = client.get("/health/ready")
         data = resp.json()
-        # colmap이 없을 수 있으므로 status code와 DB 체크만 확인
+        # colmap/redis가 없을 수 있으므로 DB 체크만 확인
         if resp.status_code == 200:
             assert data["checks"]["database"] == "ok"
         else:
@@ -441,8 +511,9 @@ class TestHealth:
             detail = data["detail"]
             assert detail["database"] == "ok" or "error" in detail["database"]
 
+    @patch("src.api.main._get_redis_connection")
     @patch("src.api.main._job_store")
-    def test_health_ready_db_failure(self, mock_store):
+    def test_health_ready_db_failure(self, mock_store, mock_redis):
         """DB 연결 실패 시 503을 반환한다."""
         mock_store.ping.side_effect = RuntimeError("DB 연결 실패")
         resp = client.get("/health/ready")
