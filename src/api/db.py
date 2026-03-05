@@ -21,6 +21,7 @@ _ALLOWED_UPDATE_FIELDS = {
     "gs_splat_path",
     "potree_dir",
     "progress",
+    "retry_count",
 }
 
 
@@ -187,6 +188,7 @@ class JobStore:
             "gs_splat_path",
             "potree_dir",
             "user_id",
+            "retry_count",
         ):
             if col not in columns:
                 self._conn.execute(f"ALTER TABLE jobs ADD COLUMN {col} TEXT")

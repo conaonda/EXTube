@@ -29,6 +29,11 @@ class Settings(BaseSettings):
     output_base_dir: Path = Path("data/jobs")
     db_path: Path = Path("data/jobs.db")
 
+    # 재시도 설정
+    max_retries: int = 3
+    retry_base_delay: int = 10  # 초 (지수 백오프: 10s, 30s, 90s)
+    retry_backoff_multiplier: int = 3
+
     # CORS (쉼표 구분 문자열)
     cors_origins: str = "http://localhost:5173,http://localhost:3000"
 
