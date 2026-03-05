@@ -453,7 +453,7 @@ def list_job_files(job_id: str) -> dict[str, Any]:
     files = []
     base_resolved = result_dir.resolve()
     for f in sorted(result_dir.rglob("*")):
-        if f.is_file() and str(f.resolve()).startswith(str(base_resolved)):
+        if f.is_file() and f.resolve().is_relative_to(base_resolved):
             rel = f.relative_to(result_dir)
             files.append(
                 {
@@ -487,7 +487,7 @@ def download_job_file(job_id: str, file_path: str) -> FileResponse:
     target = (result_dir / file_path).resolve()
     base_resolved = result_dir.resolve()
 
-    if not str(target).startswith(str(base_resolved)):
+    if not target.is_relative_to(base_resolved):
         raise HTTPException(status_code=400, detail="잘못된 파일 경로입니다")
 
     if not target.is_file():
