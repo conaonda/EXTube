@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import threading
 from collections import defaultdict
 from typing import Any
 
@@ -74,6 +75,66 @@ def broadcast_progress(job_id: str, data: dict[str, Any]) -> None:
         )
     except RuntimeError:
         pass
+
+
+_subscriber_thread: threading.Thread | None = None
+_subscriber_stop = threading.Event()
+
+
+def start_redis_subscriber(redis_url: str) -> None:
+    """Redis pub/sub 구독 스레드를 시작한다. worker의 진행 상태를 WebSocket으로 중계."""
+    global _subscriber_thread  # noqa: PLW0603
+
+    if _subscriber_thread is not None:
+        return
+
+    def _run() -> None:
+        import redis
+
+        conn = redis.from_url(redis_url)
+        pubsub = conn.pubsub()
+        pubsub.psubscribe("job:*:progress")
+        try:
+            while not _subscriber_stop.is_set():
+                message = pubsub.get_message(
+                    ignore_subscribe_messages=True, timeout=1.0
+                )
+                if message is None:
+                    continue
+                if message["type"] != "pmessage":
+                    continue
+                channel = message["channel"]
+                if isinstance(channel, bytes):
+                    channel = channel.decode()
+                # channel format: job:{job_id}:progress
+                parts = channel.split(":")
+                if len(parts) != 3:
+                    continue
+                job_id = parts[1]
+                try:
+                    data = json.loads(message["data"])
+                except (json.JSONDecodeError, TypeError):
+                    continue
+                broadcast_progress(job_id, data)
+        except Exception:
+            logger.exception("Redis subscriber 오류")
+        finally:
+            pubsub.close()
+            conn.close()
+
+    _subscriber_thread = threading.Thread(target=_run, daemon=True)
+    _subscriber_thread.start()
+    logger.info("Redis pub/sub subscriber 시작")
+
+
+def stop_redis_subscriber() -> None:
+    """Redis pub/sub 구독 스레드를 종료한다."""
+    global _subscriber_thread  # noqa: PLW0603
+    _subscriber_stop.set()
+    if _subscriber_thread is not None:
+        _subscriber_thread.join(timeout=3)
+        _subscriber_thread = None
+    _subscriber_stop.clear()
 
 
 async def websocket_job_handler(

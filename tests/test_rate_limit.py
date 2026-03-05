@@ -76,10 +76,8 @@ class TestRateLimitMiddleware:
         _reset_rate_limiter()
         with (
             patch("src.api.main.validate_youtube_url", return_value=True),
-            patch("src.api.main._executor") as mock_executor,
+            patch("src.api.main._enqueue_job"),
         ):
-            mock_executor.submit.return_value = None
-
             for _ in range(5):
                 resp = client.post(
                     "/api/jobs",

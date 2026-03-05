@@ -311,6 +311,18 @@ class JobStore:
             self._conn.commit()
         return count
 
+    def fail_stale_jobs(self, statuses: list[str], error: str) -> int:
+        """지정된 상태의 Job을 모두 failed로 전환한다. 전환된 수를 반환한다."""
+        placeholders = ", ".join("?" for _ in statuses)
+        with self._lock:
+            cursor = self._conn.execute(
+                f"UPDATE jobs SET status = 'failed', error = ?"  # noqa: S608
+                f" WHERE status IN ({placeholders})",
+                [error, *statuses],
+            )
+            self._conn.commit()
+            return cursor.rowcount
+
     def ping(self) -> bool:
         """DB 연결 상태를 확인한다."""
         self._conn.execute("SELECT 1")
