@@ -887,6 +887,44 @@ class TestDownloadJobFile:
         assert resp.content == b"camera binary"
 
 
+class TestOpenAPIDocs:
+    """OpenAPI 문서 테스트."""
+
+    def test_openapi_schema(self):
+        """OpenAPI 스키마가 올바르게 생성된다."""
+        resp = client.get("/openapi.json")
+        assert resp.status_code == 200
+        schema = resp.json()
+        assert schema["info"]["title"] == "EXTube API"
+        assert schema["info"]["version"] == "0.5.0"
+        assert "/api/jobs" in schema["paths"]
+        assert "/auth/login" in schema["paths"]
+
+    def test_docs_available_in_dev(self):
+        """/docs가 개발 환경에서 접근 가능하다."""
+        resp = client.get("/docs")
+        assert resp.status_code == 200
+
+    def test_redoc_available_in_dev(self):
+        """/redoc이 개발 환경에서 접근 가능하다."""
+        resp = client.get("/redoc")
+        assert resp.status_code == 200
+
+    def test_endpoints_have_tags(self):
+        """주요 엔드포인트에 태그가 설정되어 있다."""
+        resp = client.get("/openapi.json")
+        schema = resp.json()
+        jobs_post = schema["paths"]["/api/jobs"]["post"]
+        assert "jobs" in jobs_post.get("tags", [])
+
+    def test_endpoints_have_summary(self):
+        """주요 엔드포인트에 summary가 설정되어 있다."""
+        resp = client.get("/openapi.json")
+        schema = resp.json()
+        jobs_post = schema["paths"]["/api/jobs"]["post"]
+        assert jobs_post.get("summary") is not None
+
+
 class TestMetrics:
     """Prometheus /metrics 엔드포인트 테스트."""
 

@@ -22,7 +22,7 @@ from fastapi.responses import FileResponse, Response, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from prometheus_client import Gauge, generate_latest
 from prometheus_fastapi_instrumentator import Instrumentator
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from rq import Queue
 from rq.command import send_stop_job_command
 from rq.job import Job as RQJob
@@ -91,8 +91,20 @@ async def _lifespan(application: FastAPI) -> AsyncIterator[None]:
     stop_redis_subscriber()
 
 
+_docs_url = None if _settings.environment == "production" else "/docs"
+_redoc_url = None if _settings.environment == "production" else "/redoc"
 
-app = FastAPI(title="EXTube API", version="0.5.0", lifespan=_lifespan)
+app = FastAPI(
+    title="EXTube API",
+    version="0.5.0",
+    description=(
+        "유튜브 영상에서 사진측량(photogrammetry) 기술을 활용해 "
+        "3차원 공간을 복원하는 API 서비스."
+    ),
+    docs_url=_docs_url,
+    redoc_url=_redoc_url,
+    lifespan=_lifespan,
+)
 
 # 인증 라우터
 app.include_router(auth_router)
@@ -161,7 +173,7 @@ _instrumentator = Instrumentator(
 ).instrument(app)
 
 
-@app.get("/metrics", include_in_schema=True)
+@app.get("/metrics", include_in_schema=True, tags=["monitoring"])
 def metrics() -> Response:
     """Prometheus 메트릭 엔드포인트."""
     _update_job_gauges()
@@ -191,27 +203,27 @@ class JobStatus(StrEnum):
 class JobCreate(BaseModel):
     """작업 생성 요청."""
 
-    url: str
-    max_height: int = 1080
-    frame_interval: float = 1.0
-    blur_threshold: float = 100.0
-    camera_model: str = "SIMPLE_RADIAL"
-    dense: bool = False
-    max_image_size: int = 0
-    gaussian_splatting: bool = False
-    gs_max_iterations: int | None = None
+    url: str = Field(description="유튜브 영상 URL", examples=["https://www.youtube.com/watch?v=dQw4w9WgXcQ"])
+    max_height: int = Field(1080, description="다운로드 영상의 최대 높이 (px)")
+    frame_interval: float = Field(1.0, description="프레임 추출 간격 (초)")
+    blur_threshold: float = Field(100.0, description="블러 필터링 임계값 (낮을수록 엄격)")
+    camera_model: str = Field("SIMPLE_RADIAL", description="COLMAP 카메라 모델")
+    dense: bool = Field(False, description="Dense reconstruction 수행 여부")
+    max_image_size: int = Field(0, description="COLMAP 입력 이미지 최대 크기 (0=제한 없음)")
+    gaussian_splatting: bool = Field(False, description="3D Gaussian Splatting 수행 여부")
+    gs_max_iterations: int | None = Field(None, description="Gaussian Splatting 최대 반복 횟수")
 
 
 class JobResponse(BaseModel):
     """작업 응답."""
 
-    id: str
-    status: JobStatus
-    url: str
-    error: str | None = None
-    result: dict[str, Any] | None = None
-    gs_splat_url: str | None = None
-    retry_count: int = 0
+    id: str = Field(description="작업 고유 ID", examples=["a1b2c3d4e5f6"])
+    status: JobStatus = Field(description="작업 상태")
+    url: str = Field(description="원본 유튜브 URL")
+    error: str | None = Field(None, description="오류 메시지 (실패 시)")
+    result: dict[str, Any] | None = Field(None, description="복원 결과 메타데이터")
+    gs_splat_url: str | None = Field(None, description="Gaussian Splatting 파일 URL")
+    retry_count: int = Field(0, description="재시도 횟수")
 
 
 # Job 저장소 (SQLite)
@@ -258,15 +270,15 @@ def _enqueue_job(job_id: str, body: JobCreate) -> None:
 # --- Health 엔드포인트 ---
 
 
-@app.get("/health")
+@app.get("/health", tags=["monitoring"], summary="서버 생존 확인")
 def health() -> dict[str, str]:
-    """기본 헬스체크 — 서버 생존 확인."""
+    """기본 헬스체크 — 서버 생존 확인 (liveness probe)."""
     return {"status": "ok"}
 
 
-@app.get("/health/ready")
+@app.get("/health/ready", tags=["monitoring"], summary="준비 상태 확인")
 def health_ready() -> dict[str, Any]:
-    """준비 상태 확인 — DB 연결, Redis 연결 및 COLMAP 바이너리 존재 여부."""
+    """준비 상태 확인 — DB 연결, Redis 연결 및 COLMAP 바이너리 존재 여부 (readiness probe)."""
     checks: dict[str, Any] = {}
 
     # DB 연결 확인
@@ -315,7 +327,7 @@ def _build_response(job: dict[str, Any]) -> JobResponse:
     )
 
 
-@app.post("/api/jobs", response_model=JobResponse, status_code=201)
+@app.post("/api/jobs", response_model=JobResponse, status_code=201, tags=["jobs"], summary="복원 작업 생성")
 def create_job(
     body: JobCreate,
     current_user: dict = Depends(get_current_user),
@@ -382,7 +394,7 @@ class JobFilesResponse(BaseModel):
     files: list[FileInfo]
 
 
-@app.get("/api/jobs", response_model=JobListResponse)
+@app.get("/api/jobs", response_model=JobListResponse, tags=["jobs"], summary="작업 목록 조회")
 def list_jobs(
     status: JobStatus | None = Query(None),
     limit: int = Query(20, ge=1, le=100),
@@ -412,7 +424,7 @@ def _get_user_job(job_id: str, current_user: dict) -> dict:
     return job
 
 
-@app.get("/api/jobs/{job_id}", response_model=JobResponse)
+@app.get("/api/jobs/{job_id}", response_model=JobResponse, tags=["jobs"], summary="작업 상태 조회")
 def get_job(
     job_id: str,
     current_user: dict = Depends(get_current_user),
@@ -422,7 +434,7 @@ def get_job(
     return _build_response(job)
 
 
-@app.delete("/api/jobs/{job_id}", status_code=204)
+@app.delete("/api/jobs/{job_id}", status_code=204, tags=["jobs"], summary="작업 삭제")
 def delete_job(
     job_id: str,
     current_user: dict = Depends(get_current_user),
@@ -447,7 +459,7 @@ def delete_job(
     _job_store.delete(job_id)
 
 
-@app.post("/api/jobs/{job_id}/retry", response_model=JobResponse)
+@app.post("/api/jobs/{job_id}/retry", response_model=JobResponse, tags=["jobs"], summary="실패한 작업 재시도")
 def retry_job(
     job_id: str,
     current_user: dict = Depends(get_current_user),
@@ -471,7 +483,7 @@ def retry_job(
     return _build_response(updated_job)
 
 
-@app.post("/api/jobs/{job_id}/cancel", response_model=JobResponse)
+@app.post("/api/jobs/{job_id}/cancel", response_model=JobResponse, tags=["jobs"], summary="작업 취소")
 def cancel_job(
     job_id: str,
     current_user: dict = Depends(get_current_user),
@@ -528,7 +540,7 @@ def cancel_job(
     return _build_response(updated)
 
 
-@app.get("/api/jobs/{job_id}/stream")
+@app.get("/api/jobs/{job_id}/stream", tags=["jobs"], summary="작업 진행률 SSE 스트림")
 async def stream_job(
     job_id: str,
     current_user: dict = Depends(get_current_user),
@@ -586,7 +598,7 @@ async def stream_job(
     )
 
 
-@app.get("/api/jobs/{job_id}/result")
+@app.get("/api/jobs/{job_id}/result", tags=["jobs"], summary="복원 결과 PLY 다운로드")
 def get_job_result(
     job_id: str,
     current_user: dict = Depends(get_current_user_or_query_token),
@@ -628,7 +640,7 @@ def get_job_result(
     )
 
 
-@app.get("/api/jobs/{job_id}/splat")
+@app.get("/api/jobs/{job_id}/splat", tags=["jobs"], summary="Gaussian Splatting 파일 다운로드")
 def get_splat_file(
     job_id: str,
     current_user: dict = Depends(get_current_user_or_query_token),
@@ -667,7 +679,7 @@ def get_splat_file(
     )
 
 
-@app.get("/api/jobs/{job_id}/potree/{file_path:path}")
+@app.get("/api/jobs/{job_id}/potree/{file_path:path}", tags=["jobs"], summary="Potree octree 파일 서빙")
 def get_potree_file(
     job_id: str,
     file_path: str,
@@ -708,7 +720,7 @@ def get_potree_file(
     return FileResponse(path=str(target), media_type=media_type)
 
 
-@app.get("/api/storage/usage", response_model=StorageUsageResponse)
+@app.get("/api/storage/usage", response_model=StorageUsageResponse, tags=["storage"], summary="스토리지 사용량 조회")
 def get_storage_usage(
     current_user: dict = Depends(get_current_user),
 ) -> StorageUsageResponse:
@@ -719,7 +731,7 @@ def get_storage_usage(
     return StorageUsageResponse(**data)
 
 
-@app.get("/api/jobs/{job_id}/files", response_model=JobFilesResponse)
+@app.get("/api/jobs/{job_id}/files", response_model=JobFilesResponse, tags=["jobs"], summary="작업 결과 파일 목록")
 def list_job_files(
     job_id: str,
     current_user: dict = Depends(get_current_user),
@@ -752,7 +764,7 @@ def list_job_files(
     return JobFilesResponse(job_id=job_id, files=files)
 
 
-@app.get("/api/jobs/{job_id}/download/{file_path:path}")
+@app.get("/api/jobs/{job_id}/download/{file_path:path}", tags=["jobs"], summary="결과 파일 다운로드")
 def download_job_file(
     job_id: str,
     file_path: str,
