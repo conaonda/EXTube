@@ -29,6 +29,7 @@ from src.api.auth import get_current_user, set_job_store
 from src.api.auth import router as auth_router
 from src.api.config import get_settings
 from src.api.db import JobStore
+from src.api.middleware import RequestLoggingMiddleware, register_exception_handlers
 from src.api.rate_limit import RateLimitMiddleware, RateLimitRule
 from src.api.tasks import run_pipeline
 from src.api.ws import (
@@ -103,6 +104,12 @@ app.add_middleware(
     },
 )
 
+# 요청/응답 로깅 미들웨어
+app.add_middleware(RequestLoggingMiddleware)
+
+# 글로벌 예외 핸들러
+register_exception_handlers(app)
+
 # Prometheus 메트릭
 ACTIVE_JOBS_GAUGE = Gauge(
     "extube_active_jobs", "Number of active jobs (pending + processing)"
@@ -117,12 +124,20 @@ def _update_job_gauges() -> None:
         for s in ("pending", "processing"):
             active += _job_store.list(status=s, limit=0)["total"]
         ACTIVE_JOBS_GAUGE.set(active)
-    except Exception:
-        pass
+    except Exception as e:
+        logger.warning("메트릭 게이지 업데이트 실패 (active_jobs): %s", e)
     try:
-        q = _get_queue()
+        conn = redis.from_url(
+            _settings.redis_url, socket_connect_timeout=2, socket_timeout=2
+        )
+        q = Queue(
+            _settings.rq_queue_name,
+            connection=conn,
+            default_timeout=_settings.rq_job_timeout,
+        )
         QUEUE_LENGTH_GAUGE.set(len(q))
-    except Exception:
+    except Exception as e:
+        logger.warning("메트릭 게이지 업데이트 실패 (queue_length): %s", e)
         QUEUE_LENGTH_GAUGE.set(0)
 
 
