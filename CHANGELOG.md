@@ -8,6 +8,12 @@
 
 ## [Unreleased]
 
+---
+
+## [0.44.0] - 2026-03-07
+
+### Sprint 25
+
 ### Added
 - **feat(api):** 파이프라인 단계별 진행률 WebSocket 알림 개선 (#248, PR #253)
   - `reconstruct()` 함수에 `progress_callback: ProgressCallback | None` 파라미터 추가
@@ -15,6 +21,8 @@
   - 각 단계 진입/완료 시 WebSocket으로 `{stage, progress_pct}` 실시간 전송
   - `ProgressCallback = Callable[[str, int, str], None]` 타입 별칭 정의
   - 프론트엔드 `JobStatus` 컴포넌트에 프로그레스 바 + 5단계 인디케이터 UI 추가
+- **test(viewer):** 갤러리 페이지 Playwright E2E 테스트 추가 (#247, PR #255)
+  - 갤러리 카드 렌더링, 뷰어 전환, 미인증 접근, 모바일 반응형 4건
 
 ---
 
