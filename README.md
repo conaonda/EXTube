@@ -13,6 +13,20 @@
              (yt-dlp)       (ffmpeg)     (COLMAP/3DGS)  (Three.js)
 ```
 
+### 실시간 진행률 알림
+
+작업 처리 중 WebSocket을 통해 5단계 진행률을 실시간으로 전달합니다.
+
+| 단계 | 설명 |
+|------|------|
+| `download` | 유튜브 영상 다운로드 |
+| `extraction` | 프레임 추출 |
+| `feature_matching` | COLMAP 특징점 추출 및 매칭 |
+| `reconstruction` | Sparse 3D 복원 |
+| `export` | PLY/Splat 결과 내보내기 |
+
+프론트엔드 `JobStatus` 컴포넌트는 프로그레스 바와 단계 인디케이터로 진행 상황을 표시합니다.
+
 ## Quick Start
 
 ### 1. 환경변수 설정
@@ -110,7 +124,8 @@ npm run dev      # Vite 개발 서버 (localhost:5173)
 
 프론트엔드 테스트는 별도로 실행합니다:
 ```bash
-cd src/viewer && npm test
+cd src/viewer && npm test          # 단위 테스트 (vitest)
+cd src/viewer && npm run test:e2e  # E2E 테스트 (Playwright)
 ```
 
 ### Docker 개발 환경
