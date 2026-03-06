@@ -1,8 +1,52 @@
-import { useState } from 'react'
+import { Component, useState, type ReactNode } from 'react'
 import { sampleItems } from '../sampleGallery'
 import type { SampleItem } from '../sampleGallery'
 import ViewerCanvas from './ViewerCanvas'
 import '../Gallery.css'
+
+interface GalleryErrorBoundaryProps {
+  onBack: () => void
+  children: ReactNode
+}
+
+interface GalleryErrorBoundaryState {
+  hasError: boolean
+  error: Error | null
+}
+
+class GalleryErrorBoundary extends Component<GalleryErrorBoundaryProps, GalleryErrorBoundaryState> {
+  state: GalleryErrorBoundaryState = { hasError: false, error: null }
+
+  static getDerivedStateFromError(error: Error): GalleryErrorBoundaryState {
+    return { hasError: true, error }
+  }
+
+  render() {
+    if (this.state.hasError) {
+      return (
+        <div className="gallery-error" role="alert">
+          <div className="gallery-error-icon">&#9888;</div>
+          <h3 className="gallery-error-title">3D 데이터를 불러올 수 없습니다</h3>
+          <p className="gallery-error-message">
+            {this.state.error?.message ?? '샘플 파일을 로드하는 중 오류가 발생했습니다.'}
+          </p>
+          <div className="gallery-error-actions">
+            <button
+              className="gallery-error-retry"
+              onClick={() => this.setState({ hasError: false, error: null })}
+            >
+              다시 시도
+            </button>
+            <button className="gallery-error-back" onClick={this.props.onBack}>
+              갤러리로 돌아가기
+            </button>
+          </div>
+        </div>
+      )
+    }
+    return this.props.children
+  }
+}
 
 export default function GalleryPage() {
   const [selected, setSelected] = useState<SampleItem | null>(null)
@@ -11,18 +55,21 @@ export default function GalleryPage() {
     const plyUrl = selected.type === 'ply' ? selected.dataUrl : null
     const potreeUrl = selected.type === 'potree' ? selected.dataUrl : null
     const splatUrl = selected.type === 'splat' ? selected.dataUrl : null
+    const handleBack = () => setSelected(null)
 
     return (
       <div className="gallery-viewer">
         <div className="gallery-viewer-header">
-          <button className="gallery-back-btn" onClick={() => setSelected(null)}>
+          <button className="gallery-back-btn" onClick={handleBack}>
             &larr; 갤러리로 돌아가기
           </button>
           <span className="gallery-viewer-title">{selected.title}</span>
           <span className="gallery-viewer-badge">{selected.type.toUpperCase()}</span>
         </div>
         <div className="gallery-viewer-canvas">
-          <ViewerCanvas plyUrl={plyUrl} potreeUrl={potreeUrl} splatUrl={splatUrl} />
+          <GalleryErrorBoundary onBack={handleBack}>
+            <ViewerCanvas plyUrl={plyUrl} potreeUrl={potreeUrl} splatUrl={splatUrl} />
+          </GalleryErrorBoundary>
         </div>
       </div>
     )
