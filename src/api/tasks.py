@@ -270,11 +270,13 @@ def _handle_pipeline_error(
 
         # Job의 원래 파라미터를 DB에서 복원하여 재큐잉
         if job:
+            stored_params = job.get("params") or {}
             q.enqueue_in(
                 time_delta=datetime.timedelta(seconds=delay),
                 f=run_pipeline,
                 job_id=job_id,
                 url=job["url"],
+                **stored_params,
                 job_timeout=_settings.rq_job_timeout,
             )
     else:
