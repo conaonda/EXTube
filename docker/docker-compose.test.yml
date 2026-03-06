@@ -1,0 +1,48 @@
+services:
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6399:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  app:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+    ports:
+      - "8099:8000"
+    environment:
+      - PYTHONUNBUFFERED=1
+      - EXTUBE_REDIS_URL=redis://redis:6379
+      - EXTUBE_ENVIRONMENT=test
+      - EXTUBE_DB_PATH=/tmp/extube_test.db
+      - EXTUBE_OUTPUT_BASE_DIR=/tmp/extube_output
+      - EXTUBE_MAX_VIDEO_DURATION_SECONDS=30
+    depends_on:
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 15s
+
+  rq-worker:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+    command: rq worker gpu --url redis://redis:6379
+    environment:
+      - PYTHONUNBUFFERED=1
+      - EXTUBE_REDIS_URL=redis://redis:6379
+      - EXTUBE_ENVIRONMENT=test
+      - EXTUBE_DB_PATH=/tmp/extube_test.db
+      - EXTUBE_OUTPUT_BASE_DIR=/tmp/extube_output
+    depends_on:
+      redis:
+        condition: service_healthy
