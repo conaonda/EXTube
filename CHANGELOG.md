@@ -8,6 +8,14 @@
 
 ## [Unreleased]
 
+### Added
+- **feat(api):** 파이프라인 단계별 진행률 WebSocket 알림 개선 (#248, PR #253)
+  - `reconstruct()` 함수에 `progress_callback: ProgressCallback | None` 파라미터 추가
+  - 파이프라인 5단계 세분화: `download` → `extraction` → `feature_matching` → `reconstruction` → `export`
+  - 각 단계 진입/완료 시 WebSocket으로 `{stage, progress_pct}` 실시간 전송
+  - `ProgressCallback = Callable[[str, int, str], None]` 타입 별칭 정의
+  - 프론트엔드 `JobStatus` 컴포넌트에 프로그레스 바 + 5단계 인디케이터 UI 추가
+
 ---
 
 ## [0.43.0] - 2026-03-07
