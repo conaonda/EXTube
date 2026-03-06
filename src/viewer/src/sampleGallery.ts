@@ -1,9 +1,19 @@
+/**
+ * 갤러리 페이지에 표시되는 3D 샘플 항목.
+ * 파일은 `public/samples/<name>/` 디렉토리에 배치한다.
+ */
 export interface SampleItem {
+  /** 항목 고유 식별자 */
   id: string
+  /** 카드에 표시되는 제목 */
   title: string
+  /** 카드에 표시되는 설명 */
   description: string
+  /** 썸네일 이미지 경로 (없으면 "3D" 플레이스홀더 표시) */
   thumbnail: string
+  /** 3D 데이터 포맷 */
   type: 'ply' | 'potree' | 'splat'
+  /** 3D 데이터 파일 경로 */
   dataUrl: string
 }
 

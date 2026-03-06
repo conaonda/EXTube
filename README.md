@@ -127,6 +127,27 @@ GPU 모드가 필요한 경우:
 docker compose --profile gpu up --build
 ```
 
+## 샘플 갤러리
+
+`/gallery` 페이지에서 로그인 없이 사전 복원된 3D 결과물을 탐색할 수 있습니다.
+
+- 카드 클릭 시 기존 3D 뷰어(ViewerCanvas)로 전환
+- PLY(포인트 클라우드), Splat(Gaussian Splatting) 포맷 지원
+- 모바일 반응형 그리드 레이아웃 (640px 이하 단일 컬럼)
+
+샘플 데이터는 `src/viewer/src/sampleGallery.ts`에서 설정합니다. `SampleItem` 인터페이스:
+
+| 필드 | 타입 | 설명 |
+|------|------|------|
+| `id` | `string` | 고유 식별자 |
+| `title` | `string` | 표시 제목 |
+| `description` | `string` | 설명 |
+| `thumbnail` | `string` | 썸네일 이미지 경로 |
+| `type` | `'ply' \| 'potree' \| 'splat'` | 3D 데이터 포맷 |
+| `dataUrl` | `string` | 3D 데이터 파일 경로 |
+
+샘플 파일은 `public/samples/<name>/` 디렉토리에 배치합니다.
+
 ## 업무 스킴
 
 이 프로젝트는 [TeamWork](https://github.com/conaonda/TeamWork) 업무 스킴을 따릅니다.
