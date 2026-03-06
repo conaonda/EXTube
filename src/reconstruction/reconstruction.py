@@ -7,8 +7,12 @@ sparse/dense 포인트 클라우드를 생성한다.
 import json
 import shutil
 import subprocess
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
+
+ProgressCallback = Callable[[str, int, str], None]
+"""progress_callback(step_name, percent, message) 시그니처."""
 
 
 @dataclass
@@ -322,6 +326,7 @@ def reconstruct(
     max_image_size: int = 0,
     gaussian_splatting: bool = False,
     gs_max_iterations: int | None = None,
+    progress_callback: ProgressCallback | None = None,
 ) -> ReconstructionResult:
     """전체 COLMAP SfM 파이프라인을 실행한다.
 
@@ -362,15 +367,23 @@ def reconstruct(
 
     steps_completed = []
 
+    def _notify(step: str, percent: int, message: str) -> None:
+        if progress_callback is not None:
+            progress_callback(step, percent, message)
+
     # 1. Feature extraction
+    _notify("feature_matching", 0, "특징점 추출 시작")
     feature_extractor(image_dir, database_path, camera_model)
     steps_completed.append("feature_extraction")
 
     # 2. Feature matching
+    _notify("feature_matching", 50, "특징점 매칭 중")
     exhaustive_matcher(database_path)
     steps_completed.append("exhaustive_matching")
+    _notify("feature_matching", 100, "특징점 매칭 완료")
 
     # 3. Sparse reconstruction
+    _notify("reconstruction", 0, "Sparse 복원 시작")
     sparse_reconstructor(database_path, image_dir, sparse_dir)
     steps_completed.append("sparse_reconstruction")
 
@@ -383,7 +396,10 @@ def reconstruct(
             "이미지 간 겹침이 부족하거나 특징점이 부족합니다."
         )
 
+    _notify("reconstruction", 100, "Sparse 복원 완료")
+
     # 4. PLY export
+    _notify("export", 0, "결과 내보내기 시작")
     if export_ply:
         model_dir = stats.get("model_dir")
         if model_dir:
@@ -451,6 +467,8 @@ def reconstruct(
         potree_metadata_path = potree_convert(potree_source_ply, potree_dir)
         if potree_metadata_path:
             steps_completed.append("potree_conversion")
+
+    _notify("export", 100, "결과 내보내기 완료")
 
     # 메타데이터 저장
     metadata = {

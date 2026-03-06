@@ -190,6 +190,54 @@ class TestReconstruct:
 
     @patch("src.reconstruction.reconstruction.subprocess.run")
     @patch("src.reconstruction.reconstruction._run_colmap")
+    def test_progress_callback_called(self, mock_colmap, mock_subprocess, tmp_path):
+        image_dir = tmp_path / "images"
+        image_dir.mkdir()
+        for i in range(3):
+            (image_dir / f"frame_{i:06d}.jpg").write_bytes(b"\xff" * 100)
+        workspace = tmp_path / "workspace"
+
+        def side_effect(command, args):
+            if command == "feature_extractor":
+                db = workspace / "database.db"
+                db.parent.mkdir(parents=True, exist_ok=True)
+                db.touch()
+            elif command == "mapper":
+                model_dir = workspace / "sparse" / "0"
+                model_dir.mkdir(parents=True, exist_ok=True)
+                (model_dir / "images.bin").write_bytes(b"\x00" * 1024)
+                (model_dir / "points3D.bin").write_bytes(b"\x00" * 640)
+                (model_dir / "cameras.bin").write_bytes(b"\x00" * 64)
+            return MagicMock(returncode=0)
+
+        mock_colmap.side_effect = side_effect
+        mock_subprocess.return_value = MagicMock(
+            returncode=0,
+            stdout="Registered images = 3\nPoints 3D = 50\n",
+        )
+
+        calls = []
+        reconstruct(
+            image_dir,
+            workspace,
+            export_ply=True,
+            progress_callback=lambda step, pct, msg: calls.append((step, pct, msg)),
+        )
+
+        # 5단계 진행률 콜백이 호출되었는지 확인
+        stages_called = [c[0] for c in calls]
+        assert "feature_matching" in stages_called
+        assert "reconstruction" in stages_called
+        assert "export" in stages_called
+        # feature_matching 0%, 50%, 100% 호출 확인
+        fm_calls = [
+            (pct, msg) for step, pct, msg in calls if step == "feature_matching"
+        ]
+        assert fm_calls[0][0] == 0
+        assert fm_calls[-1][0] == 100
+
+    @patch("src.reconstruction.reconstruction.subprocess.run")
+    @patch("src.reconstruction.reconstruction._run_colmap")
     def test_pipeline_without_ply_export(self, mock_colmap, mock_subprocess, tmp_path):
         image_dir = tmp_path / "images"
         image_dir.mkdir()

@@ -67,9 +67,39 @@ describe('JobStatus', () => {
         progress={{ stage: 'download', percent: 50, message: '다운로드 중' }}
       />,
     )
-    expect(screen.getByText(/다운로드/)).toBeInTheDocument()
+    expect(screen.getAllByText(/다운로드/).length).toBeGreaterThanOrEqual(1)
     expect(screen.getByText(/50%/)).toBeInTheDocument()
     expect(screen.getByText(/다운로드 중/)).toBeInTheDocument()
+  })
+
+  it('renders progress bar with aria attributes', () => {
+    render(
+      <JobStatus
+        job={{ ...baseJob, status: 'processing' }}
+        progress={{ stage: 'feature_matching', percent: 75, message: '특징점 매칭 중' }}
+      />,
+    )
+    const bar = screen.getByRole('progressbar')
+    expect(bar).toHaveAttribute('aria-valuenow', '75')
+    expect(bar).toHaveAttribute('aria-label', '특징점 매칭 75%')
+  })
+
+  it('renders all 5 pipeline stages', () => {
+    const { container } = render(
+      <JobStatus
+        job={{ ...baseJob, status: 'processing' }}
+        progress={{ stage: 'reconstruction', percent: 30, message: 'Sparse 복원 중' }}
+      />,
+    )
+    const stages = container.querySelectorAll('.job-status-stage')
+    expect(stages).toHaveLength(5)
+    // download, extraction should be done; feature_matching should be done; reconstruction active
+    expect(stages[0]).toHaveClass('job-status-stage--done')
+    expect(stages[1]).toHaveClass('job-status-stage--done')
+    expect(stages[2]).toHaveClass('job-status-stage--done')
+    expect(stages[3]).toHaveClass('job-status-stage--active')
+    expect(stages[4]).not.toHaveClass('job-status-stage--done')
+    expect(stages[4]).not.toHaveClass('job-status-stage--active')
   })
 
   it('does not show progress when status is not processing', () => {
