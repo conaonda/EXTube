@@ -63,7 +63,7 @@ class TestHealthEndpoints:
         resp = requests.get(f"{api_url}/health", timeout=5)
         assert resp.status_code == 200
         data = resp.json()
-        assert data["status"] == "healthy"
+        assert data["status"] == "ok"
 
     def test_health_ready(self, api_url):
         """Redis 연결을 포함한 준비 상태를 확인한다."""

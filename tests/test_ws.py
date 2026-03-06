@@ -77,7 +77,7 @@ class TestWebSocketAuth:
 
     def test_no_token_closes_with_4001(self):
         """토큰 없이 빈 메시지를 보내면 4001로 닫힌다."""
-        token = _register_and_login()
+        _register_and_login()
         user_id = _get_user_id()
         _insert_job("authtest01", user_id=user_id)
         with pytest.raises(Exception):
@@ -87,7 +87,7 @@ class TestWebSocketAuth:
 
     def test_invalid_token_closes_with_4001(self):
         """잘못된 토큰으로 인증하면 4001로 닫힌다."""
-        token = _register_and_login()
+        _register_and_login()
         user_id = _get_user_id()
         _insert_job("authtest02", user_id=user_id)
         with pytest.raises(Exception):
@@ -97,7 +97,7 @@ class TestWebSocketAuth:
 
     def test_other_user_closes_with_4003(self):
         """다른 사용자의 Job에 연결하면 4003으로 닫힌다."""
-        owner_token = _register_and_login()
+        _register_and_login()
         owner_id = _get_user_id()
         _insert_job("authtest03", user_id=owner_id)
 
