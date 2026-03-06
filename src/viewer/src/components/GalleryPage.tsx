@@ -4,6 +4,15 @@ import type { SampleItem } from '../sampleGallery'
 import ViewerCanvas from './ViewerCanvas'
 import '../Gallery.css'
 
+/**
+ * 사전 복원된 3D 샘플 갤러리 페이지.
+ *
+ * 로그인 없이 접근 가능한 `/gallery` 라우트에서 렌더링된다.
+ * 샘플 카드 그리드를 표시하고, 카드 클릭 시 인라인 3D 뷰어({@link ViewerCanvas})로 전환한다.
+ *
+ * 샘플 데이터는 {@link sampleItems}에서 관리하며,
+ * 실제 파일은 `public/samples/<name>/` 디렉토리에 위치해야 한다.
+ */
 export default function GalleryPage() {
   const [selected, setSelected] = useState<SampleItem | null>(null)
 

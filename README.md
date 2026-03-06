@@ -129,6 +129,8 @@ docker compose --profile gpu up --build
 
 ## 샘플 갤러리
 
+**온라인 데모:** https://conaonda.github.io/EXTube/gallery
+
 `/gallery` 페이지에서 로그인 없이 사전 복원된 3D 결과물을 탐색할 수 있습니다.
 
 - 카드 클릭 시 기존 3D 뷰어(ViewerCanvas)로 전환

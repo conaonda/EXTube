@@ -8,6 +8,11 @@
 
 ## [Unreleased]
 
+### Added
+- **docs(viewer):** `Viewer3DErrorBoundary` JSDoc 추가 — Props, 동작, 사용 예제 (#243)
+- **docs(viewer):** `GalleryPage` JSDoc 추가 — 라우트, 동작, 파일 배치 규칙 (#243)
+- **docs:** README 샘플 갤러리 섹션에 온라인 데모 URL 추가 (#227)
+
 ---
 
 ## [0.42.0] - 2026-03-07
