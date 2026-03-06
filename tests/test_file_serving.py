@@ -103,6 +103,8 @@ def _cleanup_job_dirs():
     yield
     import shutil
 
+    if not OUTPUT_BASE.exists():
+        return
     for d in OUTPUT_BASE.iterdir():
         if d.is_dir() and len(d.name) == 12:
             shutil.rmtree(d, ignore_errors=True)
