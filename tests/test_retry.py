@@ -107,7 +107,7 @@ class TestIsRetryableError:
 class TestManualRetryEndpoint:
     """POST /api/jobs/{id}/retry 테스트."""
 
-    @patch("src.api.main._enqueue_job")
+    @patch("src.api.routers.jobs._enqueue_job")
     def test_retry_failed_job(self, mock_enqueue):
         """실패한 작업을 수동 재시도한다."""
         _insert_job("aabbccddeeff", error="some error", retry_count=2)
