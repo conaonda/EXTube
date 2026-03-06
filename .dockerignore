@@ -17,3 +17,6 @@ build/
 docs/
 *.md
 !README.md
+.claude/
+src/viewer/node_modules/
+src/viewer/dist/
