@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 import pytest
 from fastapi.testclient import TestClient
@@ -177,3 +177,87 @@ class TestRetryingStatus:
 
         resp = client.delete("/api/jobs/aabbccddeeff", headers=headers)
         assert resp.status_code == 409
+
+
+class TestRetryParamsRestored:
+    """재시도 시 원래 파라미터가 복원되는지 테스트."""
+
+    @patch("src.api.routers.jobs._enqueue_job")
+    def test_manual_retry_restores_params(self, mock_enqueue):
+        """수동 재시도 시 저장된 파라미터가 복원된다."""
+        _insert_job("aabbccddeeff", error="some error")
+        stored_params = {
+            "max_height": 720,
+            "frame_interval": 2.0,
+            "blur_threshold": 50.0,
+            "camera_model": "PINHOLE",
+            "dense": True,
+            "max_image_size": 1024,
+            "gaussian_splatting": True,
+            "gs_max_iterations": 5000,
+        }
+        _job_store.update("aabbccddeeff", params=stored_params)
+        headers = _get_auth_headers()
+
+        resp = client.post("/api/jobs/aabbccddeeff/retry", headers=headers)
+        assert resp.status_code == 200
+
+        mock_enqueue.assert_called_once()
+        _, kwargs = mock_enqueue.call_args
+        body = kwargs.get("body") or mock_enqueue.call_args[0][1]
+        assert body.max_height == 720
+        assert body.frame_interval == 2.0
+        assert body.blur_threshold == 50.0
+        assert body.camera_model == "PINHOLE"
+        assert body.dense is True
+        assert body.max_image_size == 1024
+        assert body.gaussian_splatting is True
+        assert body.gs_max_iterations == 5000
+
+    @patch("src.api.routers.jobs._enqueue_job")
+    def test_manual_retry_without_params_uses_defaults(self, mock_enqueue):
+        """파라미터가 저장되지 않은 Job 재시도 시 기본값을 사용한다."""
+        _insert_job("aabbccddeeff", error="some error")
+        headers = _get_auth_headers()
+
+        resp = client.post("/api/jobs/aabbccddeeff/retry", headers=headers)
+        assert resp.status_code == 200
+
+        body = mock_enqueue.call_args[0][1]
+        assert body.max_height == 1080
+        assert body.frame_interval == 1.0
+
+    def test_auto_retry_restores_params(self):
+        """자동 재시도(_handle_pipeline_error) 시 저장된 파라미터가 전달된다."""
+        from src.api.tasks import _handle_pipeline_error
+
+        _insert_job("aabbccddeeff", status="processing")
+        _job_store.update("aabbccddeeff", retry_count=0)
+        stored_params = {
+            "max_height": 720,
+            "frame_interval": 2.0,
+            "blur_threshold": 50.0,
+            "camera_model": "PINHOLE",
+            "dense": True,
+            "max_image_size": 1024,
+            "gaussian_splatting": False,
+            "gs_max_iterations": None,
+        }
+        _job_store.update("aabbccddeeff", params=stored_params)
+
+        mock_redis = MagicMock()
+        mock_queue = MagicMock()
+
+        with (
+            patch("src.api.tasks._get_redis", return_value=mock_redis),
+            patch("src.api.tasks.Queue", return_value=mock_queue),
+        ):
+            error = ConnectionError("Connection refused")
+            _handle_pipeline_error("aabbccddeeff", error, _job_store, mock_redis)
+
+        mock_queue.enqueue_in.assert_called_once()
+        call_kwargs = mock_queue.enqueue_in.call_args[1]
+        assert call_kwargs["max_height"] == 720
+        assert call_kwargs["frame_interval"] == 2.0
+        assert call_kwargs["camera_model"] == "PINHOLE"
+        assert call_kwargs["dense"] is True

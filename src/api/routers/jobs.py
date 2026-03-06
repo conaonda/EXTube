@@ -233,6 +233,12 @@ def create_job(
     store.create(
         job_id, JobStatus.pending, body.url, user_id=current_user["id"],
     )
+    params = {
+        k: v
+        for k, v in body.model_dump().items()
+        if k not in ("url", "force_reprocess")
+    }
+    store.update(job_id, params=params)
     _enqueue_job(job_id, body)
 
     return JobResponse(
@@ -349,7 +355,8 @@ def retry_job(
         )
 
     store.update(job_id, status="pending", error=None, retry_count=0)
-    body = JobCreate(url=job["url"])
+    stored_params = job.get("params") or {}
+    body = JobCreate(url=job["url"], **stored_params)
     _enqueue_job(job_id, body)
 
     updated_job = store.get(job_id)
