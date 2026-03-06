@@ -142,8 +142,7 @@ def filter_blurry_frames(
 
     with concurrent.futures.ProcessPoolExecutor(max_workers=max_workers) as executor:
         future_to_path = {
-            executor.submit(compute_blur_score, path): path
-            for path in frame_paths
+            executor.submit(compute_blur_score, path): path for path in frame_paths
         }
 
         for future in concurrent.futures.as_completed(future_to_path):

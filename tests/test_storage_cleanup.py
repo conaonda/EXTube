@@ -74,8 +74,7 @@ def _create_old_completed_job(
 
     job_dir = OUTPUT_BASE / job_id
     # 중간 파일들
-    dirs = ["reconstruction/dense", "reconstruction/sparse",
-            "extraction", "download"]
+    dirs = ["reconstruction/dense", "reconstruction/sparse", "extraction", "download"]
     for d in dirs:
         (job_dir / d).mkdir(parents=True, exist_ok=True)
         (job_dir / d / "dummy.bin").write_bytes(b"\x00" * 1024)

@@ -271,7 +271,9 @@ def get_current_user_or_query_token(
 # --- 엔드포인트 ---
 
 
-@router.post("/register", response_model=UserResponse, status_code=201, summary="사용자 등록")
+@router.post(
+    "/register", response_model=UserResponse, status_code=201, summary="사용자 등록"
+)
 def register(body: UserRegister) -> UserResponse:
     """새 사용자 계정을 등록한다."""
     store = _get_store()

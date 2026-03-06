@@ -24,9 +24,7 @@ _settings = get_settings()
 ACTIVE_JOBS_GAUGE = Gauge(
     "extube_active_jobs", "Number of active jobs (pending + processing)"
 )
-QUEUE_LENGTH_GAUGE = Gauge(
-    "extube_queue_length", "Number of jobs in the RQ queue"
-)
+QUEUE_LENGTH_GAUGE = Gauge("extube_queue_length", "Number of jobs in the RQ queue")
 
 
 def _update_job_gauges() -> None:

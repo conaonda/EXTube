@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import pytest
 from pydantic import ValidationError
-
 from src.api.routers.jobs import JobCreate
 
 _VALID_URL = "https://www.youtube.com/watch?v=dQw4w9WgXcQ"
@@ -50,9 +49,7 @@ class TestCameraModel:
     """camera_model 화이트리스트 검증."""
 
     def test_invalid_model(self):
-        with pytest.raises(
-            ValidationError, match="지원하지 않는 카메라 모델"
-        ):
+        with pytest.raises(ValidationError, match="지원하지 않는 카메라 모델"):
             JobCreate(url=_VALID_URL, camera_model="INVALID")
 
     def test_valid_models(self):

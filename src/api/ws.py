@@ -174,7 +174,7 @@ async def websocket_job_handler(
             websocket.receive_text(),
             timeout=_WS_AUTH_TIMEOUT_SECONDS,
         )
-    except asyncio.TimeoutError:
+    except TimeoutError:
         await websocket.close(code=4001, reason="인증 타임아웃")
         return
     except WebSocketDisconnect:

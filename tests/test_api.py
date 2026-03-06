@@ -15,8 +15,11 @@ from src.downloader import VideoMetadata
 client = TestClient(app)
 
 _MOCK_METADATA = VideoMetadata(
-    duration=120, title="Test Video", video_id="dQw4w9WgXcQ",
-    height=1080, filesize_approx=50 * 1024 * 1024,
+    duration=120,
+    title="Test Video",
+    video_id="dQw4w9WgXcQ",
+    height=1080,
+    filesize_approx=50 * 1024 * 1024,
 )
 
 _TEST_USER_ID = "test_user_id1"
@@ -195,12 +198,18 @@ class TestJobConcurrencyLimit:
         headers = _get_auth_headers()
         url = "https://www.youtube.com/watch?v=dQw4w9WgXcQ"
         # 2개 생성 후 1개 완료 (force_reprocess로 캐시 우회)
-        resp1 = client.post("/api/jobs", json={"url": url, "force_reprocess": True}, headers=headers)
-        client.post("/api/jobs", json={"url": url, "force_reprocess": True}, headers=headers)
+        resp1 = client.post(
+            "/api/jobs", json={"url": url, "force_reprocess": True}, headers=headers
+        )
+        client.post(
+            "/api/jobs", json={"url": url, "force_reprocess": True}, headers=headers
+        )
         job_id = resp1.json()["id"]
         _job_store.update(job_id, status=JobStatus.completed)
         # 완료된 건 제외하므로 새 Job 생성 가능
-        resp = client.post("/api/jobs", json={"url": url, "force_reprocess": True}, headers=headers)
+        resp = client.post(
+            "/api/jobs", json={"url": url, "force_reprocess": True}, headers=headers
+        )
         assert resp.status_code == 201
 
     @patch("src.api.routers.jobs._enqueue_job")
@@ -478,7 +487,6 @@ class TestDeleteJob:
         job_dir.mkdir(parents=True)
         (job_dir / "test.txt").write_text("data")
 
-
         _insert_job("aabbccddeed4", status=JobStatus.completed)
         resp = client.delete("/api/jobs/aabbccddeed4", headers=headers)
         assert resp.status_code == 204
@@ -498,7 +506,7 @@ class TestCancelJob:
     def test_cancel_pending_job(self, mock_redis):
         """대기 중인 작업을 취소한다."""
         headers = _get_auth_headers()
-        mock_conn = mock_redis.return_value
+        _ = mock_redis.return_value
         _insert_job("aabbccddeca1", status=JobStatus.pending)
         resp = client.post("/api/jobs/aabbccddeca1/cancel", headers=headers)
         assert resp.status_code == 200
@@ -510,7 +518,7 @@ class TestCancelJob:
     def test_cancel_processing_job(self, mock_redis):
         """처리 중인 작업을 취소한다."""
         headers = _get_auth_headers()
-        mock_conn = mock_redis.return_value
+        _ = mock_redis.return_value
         _insert_job("aabbccddeca2", status=JobStatus.processing)
         resp = client.post("/api/jobs/aabbccddeca2/cancel", headers=headers)
         assert resp.status_code == 200
@@ -520,7 +528,7 @@ class TestCancelJob:
     def test_cancel_retrying_job(self, mock_redis):
         """재시도 중인 작업을 취소한다."""
         headers = _get_auth_headers()
-        mock_conn = mock_redis.return_value
+        _ = mock_redis.return_value
         _insert_job("aabbccddeca3", status=JobStatus.retrying)
         resp = client.post("/api/jobs/aabbccddeca3/cancel", headers=headers)
         assert resp.status_code == 200
@@ -570,14 +578,16 @@ class TestCancelJob:
     @patch("src.api.routers.jobs._get_redis_connection")
     @patch("src.api.routers.jobs._enqueue_job")
     @patch("src.api.routers.jobs.fetch_video_metadata", return_value=_MOCK_METADATA)
-    def test_cancelled_jobs_not_counted_in_limit(self, mock_meta, mock_enqueue, mock_redis):
+    def test_cancelled_jobs_not_counted_in_limit(
+        self, mock_meta, mock_enqueue, mock_redis
+    ):
         """취소된 Job은 동시 실행 제한에 포함되지 않는다."""
         headers = _get_auth_headers()
-        mock_conn = mock_redis.return_value
+        _ = mock_redis.return_value
         url = "https://www.youtube.com/watch?v=dQw4w9WgXcQ"
         # 2개 생성
         resp1 = client.post("/api/jobs", json={"url": url}, headers=headers)
-        resp2 = client.post("/api/jobs", json={"url": url}, headers=headers)
+        client.post("/api/jobs", json={"url": url}, headers=headers)
         # 1개 취소
         client.post(f"/api/jobs/{resp1.json()['id']}/cancel", headers=headers)
         # 취소된 건 제외하므로 새 Job 생성 가능
@@ -870,8 +880,6 @@ class TestListJobFiles:
         (recon_dir / "points.ply").write_text("ply data")
         (recon_dir / "cameras.txt").write_text("camera data")
 
-
-
         _insert_job("aabbccddeeb2", status=JobStatus.completed)
         resp = client.get("/api/jobs/aabbccddeeb2/files", headers=headers)
         assert resp.status_code == 200
@@ -888,7 +896,6 @@ class TestListJobFiles:
         mock_base_dir.return_value = tmp_path
         job_dir = tmp_path / "aabbccddeeb3"
         job_dir.mkdir(parents=True)
-
 
         _insert_job("aabbccddeeb3", status=JobStatus.completed)
         resp = client.get("/api/jobs/aabbccddeeb3/files", headers=headers)
@@ -925,7 +932,6 @@ class TestDownloadJobFile:
         recon_dir.mkdir(parents=True)
         (recon_dir / "points.ply").write_bytes(b"ply binary data")
 
-
         _insert_job("aabbccddeec2", status=JobStatus.completed)
         resp = client.get(
             "/api/jobs/aabbccddeec2/download/points.ply",
@@ -944,7 +950,6 @@ class TestDownloadJobFile:
         recon_dir = job_dir / "reconstruction"
         recon_dir.mkdir(parents=True)
 
-
         _insert_job("aabbccddeec3", status=JobStatus.completed)
         resp = client.get(
             "/api/jobs/aabbccddeec3/download/nonexistent.ply",
@@ -960,7 +965,6 @@ class TestDownloadJobFile:
         job_dir = tmp_path / "aabbccddeec4"
         recon_dir = job_dir / "reconstruction"
         recon_dir.mkdir(parents=True)
-
 
         _insert_job("aabbccddeec4", status=JobStatus.completed)
         resp = client.get(
@@ -979,7 +983,6 @@ class TestDownloadJobFile:
         sub_dir = recon_dir / "sparse"
         sub_dir.mkdir(parents=True)
         (sub_dir / "cameras.bin").write_bytes(b"camera binary")
-
 
         _insert_job("aabbccddeec5", status=JobStatus.completed)
         resp = client.get(
@@ -1058,8 +1061,11 @@ class TestVideoValidation:
     def test_duration_exceeds_limit(self, mock_meta, mock_enqueue):
         """영상 길이 초과 시 422를 반환한다."""
         mock_meta.return_value = VideoMetadata(
-            duration=700, title="Long Video", video_id="abc",
-            height=1080, filesize_approx=100 * 1024 * 1024,
+            duration=700,
+            title="Long Video",
+            video_id="abc",
+            height=1080,
+            filesize_approx=100 * 1024 * 1024,
         )
         headers = _get_auth_headers()
         resp = client.post(
@@ -1076,8 +1082,11 @@ class TestVideoValidation:
     def test_filesize_exceeds_limit(self, mock_meta, mock_enqueue):
         """예상 파일 크기 초과 시 422를 반환한다."""
         mock_meta.return_value = VideoMetadata(
-            duration=60, title="Big Video", video_id="abc",
-            height=1080, filesize_approx=600 * 1024 * 1024,
+            duration=60,
+            title="Big Video",
+            video_id="abc",
+            height=1080,
+            filesize_approx=600 * 1024 * 1024,
         )
         headers = _get_auth_headers()
         resp = client.post(
@@ -1108,8 +1117,11 @@ class TestVideoValidation:
     def test_duration_none_rejected(self, mock_meta, mock_enqueue):
         """duration=None(라이브 스트림 등)은 422를 반환한다."""
         mock_meta.return_value = VideoMetadata(
-            duration=None, title="Live Stream", video_id="abc",
-            height=1080, filesize_approx=None,
+            duration=None,
+            title="Live Stream",
+            video_id="abc",
+            height=1080,
+            filesize_approx=None,
         )
         headers = _get_auth_headers()
         resp = client.post(
@@ -1126,8 +1138,11 @@ class TestVideoValidation:
     def test_within_limits_succeeds(self, mock_meta, mock_enqueue):
         """제한 이내 영상은 정상 생성된다."""
         mock_meta.return_value = VideoMetadata(
-            duration=300, title="OK Video", video_id="abc",
-            height=720, filesize_approx=100 * 1024 * 1024,
+            duration=300,
+            title="OK Video",
+            video_id="abc",
+            height=720,
+            filesize_approx=100 * 1024 * 1024,
         )
         headers = _get_auth_headers()
         resp = client.post(
@@ -1142,8 +1157,11 @@ class TestVideoValidation:
     def test_no_filesize_info_passes(self, mock_meta, mock_enqueue):
         """파일 크기 정보가 없으면 크기 검증을 건너뛴다."""
         mock_meta.return_value = VideoMetadata(
-            duration=60, title="No Size", video_id="abc",
-            height=1080, filesize_approx=None,
+            duration=60,
+            title="No Size",
+            video_id="abc",
+            height=1080,
+            filesize_approx=None,
         )
         headers = _get_auth_headers()
         resp = client.post(
