@@ -65,7 +65,7 @@ export interface JobResult {
 
 export interface Job {
   id: string
-  status: 'pending' | 'processing' | 'completed' | 'failed'
+  status: 'pending' | 'processing' | 'completed' | 'failed' | 'cancelled' | 'retrying'
   url: string
   error: string | null
   result: JobResult | null
@@ -139,4 +139,15 @@ export function getPotreeUrl(jobId: string): string {
 
 export function getSplatUrl(jobId: string): string {
   return appendToken(`${API_BASE}/jobs/${jobId}/splat`)
+}
+
+export async function cancelJob(jobId: string): Promise<Job> {
+  try {
+    const res = await authFetch(`${API_BASE}/jobs/${jobId}/cancel`, {
+      method: 'POST',
+    })
+    return handleResponse<Job>(res, '작업 취소 실패')
+  } catch (err) {
+    throw wrapNetworkError(err)
+  }
 }

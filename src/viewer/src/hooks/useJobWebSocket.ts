@@ -66,7 +66,7 @@ export function useJobWebSocket({
         try {
           const data: WsJobMessage = JSON.parse(event.data)
           onMessageRef.current(data)
-          if (data.status === 'completed' || data.status === 'failed') {
+          if (data.status === 'completed' || data.status === 'failed' || data.status === 'cancelled') {
             ws.close()
           }
         } catch {

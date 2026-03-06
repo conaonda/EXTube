@@ -3,7 +3,7 @@ import { useParams } from 'react-router-dom'
 import ViewerCanvas from './components/ViewerCanvas'
 import JobForm from './components/JobForm'
 import JobStatusBar from './components/JobStatus'
-import { ApiError, createJob, getJob, getPotreeUrl, getResultUrl, getSplatUrl } from './api'
+import { ApiError, cancelJob, createJob, getJob, getPotreeUrl, getResultUrl, getSplatUrl } from './api'
 import type { Job } from './api'
 import { useJobWebSocket } from './hooks/useJobWebSocket'
 import type { JobProgress, WsJobMessage } from './hooks/useJobWebSocket'
@@ -22,6 +22,7 @@ export default function App() {
   const [splatUrl, setSplatUrl] = useState<string | null>(null)
   const [progress, setProgress] = useState<JobProgress | null>(null)
   const [wsJobId, setWsJobId] = useState<string | null>(null)
+  const [cancelling, setCancelling] = useState(false)
   const pollingRef = useRef<ReturnType<typeof setInterval> | null>(null)
 
   const stopPolling = useCallback(() => {
@@ -59,6 +60,13 @@ export default function App() {
         )
         setProgress(null)
         setWsJobId(null)
+      } else if (msg.status === 'cancelled') {
+        setJob((prev) =>
+          prev ? { ...prev, status: 'cancelled', error: msg.error ?? '사용자에 의해 취소됨' } : prev,
+        )
+        setProgress(null)
+        setWsJobId(null)
+        setCancelling(false)
       } else if (msg.progress) {
         setProgress(msg.progress)
         setJob((prev) =>
@@ -87,7 +95,7 @@ export default function App() {
         setJob(loaded)
         if (loaded.status === 'completed') {
           handleJobCompleted(loaded)
-        } else if (loaded.status === 'pending' || loaded.status === 'processing') {
+        } else if (loaded.status === 'pending' || loaded.status === 'processing' || loaded.status === 'retrying') {
           setWsJobId(loaded.id)
         }
       } catch (err) {
@@ -139,8 +147,24 @@ export default function App() {
     return stopPolling
   }, [stopPolling])
 
+  const handleCancel = useCallback(async () => {
+    if (!job) return
+    setCancelling(true)
+    try {
+      const updated = await cancelJob(job.id)
+      setJob(updated)
+      setProgress(null)
+      setWsJobId(null)
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : '취소 실패'
+      addToast(msg, 'error')
+    } finally {
+      setCancelling(false)
+    }
+  }, [job, addToast])
+
   const isProcessing =
-    job !== null && (job.status === 'pending' || job.status === 'processing')
+    job !== null && (job.status === 'pending' || job.status === 'processing' || job.status === 'retrying')
 
   return (
     <>
@@ -160,7 +184,7 @@ export default function App() {
             )}
           </div>
         )}
-        {job && <JobStatusBar job={job} progress={progress} />}
+        {job && <JobStatusBar job={job} progress={progress} onCancel={handleCancel} cancelling={cancelling} />}
       </div>
       <ViewerCanvas plyUrl={plyUrl} potreeUrl={potreeUrl} splatUrl={splatUrl} />
     </>
