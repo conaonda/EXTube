@@ -39,18 +39,18 @@ def _clear_db(tmp_path):
     _job_store._conn.commit()
 
 
-def _register_and_login(username="testuser", password="testpass123"):
+def _register_and_login(username="testuser", password="Test1234!"):
     client.post("/auth/register", json={"username": username, "password": password})
     resp = client.post("/auth/login", data={"username": username, "password": password})
     return resp.json()
 
 
-def _auth_header(username="testuser", password="testpass123") -> dict:
+def _auth_header(username="testuser", password="Test1234!") -> dict:
     tokens = _register_and_login(username, password)
     return {"Authorization": f"Bearer {tokens['access_token']}"}
 
 
-def _get_token(username="testuser", password="testpass123") -> str:
+def _get_token(username="testuser", password="Test1234!") -> str:
     tokens = _register_and_login(username, password)
     return tokens["access_token"]
 
@@ -103,6 +103,8 @@ def _cleanup_job_dirs():
     yield
     import shutil
 
+    if not OUTPUT_BASE.exists():
+        return
     for d in OUTPUT_BASE.iterdir():
         if d.is_dir() and len(d.name) == 12:
             shutil.rmtree(d, ignore_errors=True)
@@ -130,7 +132,7 @@ class TestResultEndpointAuth:
         assert resp.status_code == 200
 
     def test_invalid_query_token_returns_401(self):
-        _auth_header("user_a", "password123")
+        _auth_header("user_a", "Password1!")
         user = _job_store.users.get_by_username("user_a")
         job_id, _ = _create_job_with_ply(user["id"])
         resp = client.get(f"/api/jobs/{job_id}/result?token=invalid.token.here")
@@ -148,8 +150,8 @@ class TestSplatEndpoint:
         assert resp.status_code == 200
 
     def test_splat_other_user_forbidden(self):
-        _auth_header("user_a", "password123")
-        token_b = _get_token("user_b", "password456")
+        _auth_header("user_a", "Password1!")
+        token_b = _get_token("user_b", "Password2!")
         user_a = _job_store.users.get_by_username("user_a")
         job_id, _ = _create_job_with_splat(user_a["id"])
         resp = client.get(f"/api/jobs/{job_id}/splat?token={token_b}")

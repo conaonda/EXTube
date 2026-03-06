@@ -13,7 +13,7 @@ client = TestClient(app, raise_server_exceptions=False)
 
 _TEST_USER_ID = "test_user_mid"
 _TEST_USERNAME = "midtestuser"
-_TEST_PASSWORD = "testpass123"
+_TEST_PASSWORD = "Test1234!"
 
 
 def _reset_rate_limiter():
@@ -74,7 +74,7 @@ class TestRequestIdHeader:
 class TestGlobalExceptionHandler:
     """글로벌 예외 핸들러 테스트."""
 
-    @patch("src.api.main._job_store")
+    @patch("src.api.dependencies._job_store")
     def test_unhandled_exception_returns_500(self, mock_store):
         """처리되지 않은 예외는 500과 일관된 에러 형식을 반환한다."""
         mock_store.get.side_effect = RuntimeError("unexpected error")

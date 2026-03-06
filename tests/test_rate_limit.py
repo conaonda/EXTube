@@ -38,10 +38,10 @@ def _get_auth_headers() -> dict[str, str]:
     pwd = CryptContext(schemes=["bcrypt"], deprecated="auto")
     _job_store._conn.execute("DELETE FROM users")
     _job_store._conn.commit()
-    _job_store.users.create("rl_test_user", "rltestuser", pwd.hash("testpass123"))
+    _job_store.users.create("rl_test_user", "rltestuser", pwd.hash("Test1234!"))
     resp = client.post(
         "/auth/login",
-        data={"username": "rltestuser", "password": "testpass123"},
+        data={"username": "rltestuser", "password": "Test1234!"},
     )
     return {"Authorization": f"Bearer {resp.json()['access_token']}"}
 
@@ -81,9 +81,9 @@ class TestRateLimitMiddleware:
         headers = _get_auth_headers()
         _reset_rate_limiter()
         with (
-            patch("src.api.main.validate_youtube_url", return_value=True),
-            patch("src.api.main.fetch_video_metadata", return_value=_MOCK_METADATA),
-            patch("src.api.main._enqueue_job"),
+            patch("src.api.routers.jobs.validate_youtube_url", return_value=True),
+            patch("src.api.routers.jobs.fetch_video_metadata", return_value=_MOCK_METADATA),
+            patch("src.api.routers.jobs._enqueue_job"),
         ):
             for _ in range(5):
                 resp = client.post(
