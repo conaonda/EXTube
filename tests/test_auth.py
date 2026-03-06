@@ -312,6 +312,101 @@ class TestLoginLockout:
         assert resp.status_code == 429
 
 
+class TestRedisLoginLockout:
+    """Redis 기반 로그인 실패 추적 테스트."""
+
+    def test_record_failure_calls_incr_and_expire(self):
+        from unittest.mock import MagicMock, patch
+
+        mock_redis = MagicMock()
+        mock_redis.ping.return_value = True
+        mock_redis.incr.return_value = 1
+
+        with patch("src.api.auth.redis.from_url", return_value=mock_redis):
+            from src.api.auth import _record_login_failure
+
+            _record_login_failure("testuser")
+
+        mock_redis.incr.assert_called_once_with("login_fail:testuser")
+        mock_redis.expire.assert_called_once_with("login_fail:testuser", 900)
+
+    def test_record_failure_no_expire_on_subsequent(self):
+        from unittest.mock import MagicMock, patch
+
+        mock_redis = MagicMock()
+        mock_redis.ping.return_value = True
+        mock_redis.incr.return_value = 3
+
+        with patch("src.api.auth.redis.from_url", return_value=mock_redis):
+            from src.api.auth import _record_login_failure
+
+            _record_login_failure("testuser")
+
+        mock_redis.incr.assert_called_once()
+        mock_redis.expire.assert_not_called()
+
+    def test_check_lockout_raises_when_locked(self):
+        from unittest.mock import MagicMock, patch
+
+        mock_redis = MagicMock()
+        mock_redis.ping.return_value = True
+        mock_redis.get.return_value = "5"
+        mock_redis.ttl.return_value = 600
+
+        with patch("src.api.auth.redis.from_url", return_value=mock_redis):
+            from src.api.auth import _check_login_lockout
+
+            with pytest.raises(Exception) as exc_info:
+                _check_login_lockout("testuser")
+            assert exc_info.value.status_code == 429
+            assert "600" in exc_info.value.detail
+
+    def test_check_lockout_passes_when_under_limit(self):
+        from unittest.mock import MagicMock, patch
+
+        mock_redis = MagicMock()
+        mock_redis.ping.return_value = True
+        mock_redis.get.return_value = "3"
+
+        with patch("src.api.auth.redis.from_url", return_value=mock_redis):
+            from src.api.auth import _check_login_lockout
+
+            _check_login_lockout("testuser")  # 예외 없음
+
+    def test_clear_attempts_calls_redis_delete(self):
+        from unittest.mock import MagicMock, patch
+
+        mock_redis = MagicMock()
+        mock_redis.ping.return_value = True
+
+        with patch("src.api.auth.redis.from_url", return_value=mock_redis):
+            from src.api.auth import _clear_login_attempts
+
+            _clear_login_attempts("testuser")
+
+        mock_redis.delete.assert_called_once_with("login_fail:testuser")
+
+    def test_fallback_to_memory_when_redis_unavailable(self):
+        """Redis 연결 실패 시 in-memory fallback을 사용한다."""
+        from unittest.mock import patch
+
+        with patch("src.api.auth.redis.from_url", side_effect=Exception("conn err")):
+            from src.api.auth import (
+                _check_login_lockout,
+                _login_attempts,
+                _record_login_failure,
+            )
+
+            _record_login_failure("fallback_user")
+            count, _ = _login_attempts["fallback_user"]
+            assert count == 1
+
+            _check_login_lockout("fallback_user")  # 예외 없음
+
+            # cleanup
+            _login_attempts.pop("fallback_user", None)
+
+
 class TestConfigValidation:
     """설정 검증 테스트."""
 
