@@ -37,13 +37,19 @@ def _run_colmap(
 ) -> subprocess.CompletedProcess:
     """COLMAP CLI 명령을 실행한다."""
     cmd = ["colmap", command, *args]
-    result = subprocess.run(
-        cmd,
-        capture_output=True,
-        text=True,
-        check=False,
-        timeout=timeout,
-    )
+    try:
+        result = subprocess.run(
+            cmd,
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=timeout,
+        )
+    except subprocess.TimeoutExpired:
+        raise RuntimeError(
+            f"COLMAP {command} 시간 초과 ({timeout}초): "
+            f"이미지 수를 줄이거나 해상도를 낮춰 주세요"
+        )
     if result.returncode != 0:
         raise RuntimeError(
             f"COLMAP {command} 실패 (code {result.returncode}): {result.stderr}"
@@ -370,6 +376,12 @@ def reconstruct(
 
     # 통계 파싱 (1회만 호출)
     stats = _parse_reconstruction_stats(sparse_dir)
+
+    if stats["num_points3d"] == 0:
+        raise RuntimeError(
+            "Sparse reconstruction에서 3D 포인트를 생성하지 못했습니다. "
+            "이미지 간 겹침이 부족하거나 특징점이 부족합니다."
+        )
 
     # 4. PLY export
     if export_ply:

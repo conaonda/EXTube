@@ -484,3 +484,40 @@ class TestPotreeConvert:
 
             with pytest.raises(RuntimeError, match="PotreeConverter"):
                 potree_convert(ply, tmp_path / "output")
+
+
+class TestRunColmapTimeout:
+    """_run_colmap 타임아웃 처리 테스트."""
+
+    @patch("src.reconstruction.reconstruction.subprocess.run")
+    def test_timeout_raises_user_friendly_error(self, mock_run):
+        import subprocess as sp
+
+        mock_run.side_effect = sp.TimeoutExpired(cmd="colmap", timeout=3600)
+        with pytest.raises(RuntimeError, match="시간 초과"):
+            _run_colmap("mapper", ["--arg", "val"])
+
+
+class TestReconstructZeroPoints:
+    """Sparse reconstruction 후 포인트 0개 실패 테스트."""
+
+    @patch("src.reconstruction.reconstruction._parse_reconstruction_stats")
+    @patch("src.reconstruction.reconstruction.sparse_reconstructor")
+    @patch("src.reconstruction.reconstruction.exhaustive_matcher")
+    @patch("src.reconstruction.reconstruction.feature_extractor")
+    def test_zero_points3d_raises(
+        self, mock_fe, mock_em, mock_sr, mock_stats, tmp_path,
+    ):
+        image_dir = tmp_path / "images"
+        image_dir.mkdir()
+        (image_dir / "img1.jpg").write_bytes(b"fake")
+        (image_dir / "img2.jpg").write_bytes(b"fake")
+        workspace = tmp_path / "workspace"
+
+        mock_stats.return_value = {
+            "num_registered": 0,
+            "num_points3d": 0,
+        }
+
+        with pytest.raises(RuntimeError, match="3D 포인트를 생성하지 못했습니다"):
+            reconstruct(image_dir, workspace)
