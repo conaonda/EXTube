@@ -142,7 +142,48 @@
 }
 
 .job-status-progress {
-  margin-left: 0.5rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  margin-top: 0.5rem;
+}
+
+.job-status-stages {
+  display: flex;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+  font-size: 0.75rem;
+}
+
+.job-status-stage {
+  color: #9ca3af;
+}
+
+.job-status-stage--active {
+  color: #1d4ed8;
+  font-weight: 600;
+}
+
+.job-status-stage--done {
+  color: #16a34a;
+}
+
+.job-status-bar {
+  height: 6px;
+  background: #e5e7eb;
+  border-radius: 3px;
+  overflow: hidden;
+}
+
+.job-status-bar-fill {
+  height: 100%;
+  background: #2563eb;
+  border-radius: 3px;
+  transition: width 0.3s ease;
+}
+
+.job-status-detail {
+  font-size: 0.8rem;
   color: #1d4ed8;
 }
 
