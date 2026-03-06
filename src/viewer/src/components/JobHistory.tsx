@@ -10,6 +10,8 @@ const STATUS_OPTIONS = [
   { value: 'processing', label: '처리 중' },
   { value: 'pending', label: '대기' },
   { value: 'failed', label: '실패' },
+  { value: 'cancelled', label: '취소됨' },
+  { value: 'retrying', label: '재시도' },
 ]
 
 const PAGE_SIZE = 20
@@ -19,6 +21,8 @@ const statusColors: Record<string, string> = {
   processing: '#2563eb',
   pending: '#d97706',
   failed: '#dc2626',
+  cancelled: '#6b7280',
+  retrying: '#ea580c',
 }
 
 const statusLabels: Record<string, string> = {
@@ -26,6 +30,8 @@ const statusLabels: Record<string, string> = {
   processing: '처리 중',
   pending: '대기',
   failed: '실패',
+  cancelled: '취소됨',
+  retrying: '재시도',
 }
 
 export default function JobHistory() {

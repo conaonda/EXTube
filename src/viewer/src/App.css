@@ -115,6 +115,32 @@
   background: #f0f9ff;
 }
 
+.job-status--cancelled {
+  background: #f3f4f6;
+}
+
+.job-status-cancel {
+  margin-left: 0.5rem;
+  padding: 0.2rem 0.5rem;
+  border: 1px solid #dc2626;
+  border-radius: 4px;
+  background: #fff;
+  color: #dc2626;
+  cursor: pointer;
+  font-size: 0.8rem;
+  font-weight: 600;
+}
+
+.job-status-cancel:hover:not(:disabled) {
+  background: #dc2626;
+  color: #fff;
+}
+
+.job-status-cancel:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
 .job-status-progress {
   margin-left: 0.5rem;
   color: #1d4ed8;
