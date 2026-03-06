@@ -8,6 +8,12 @@
 
 ## [Unreleased]
 
+---
+
+## [0.42.0] - 2026-03-07
+
+### Sprint 24
+
 ### Added
 - **feat(viewer):** 사전 복원 샘플 갤러리 페이지 구현 (#239, PR #240)
   - `/gallery` 라우트 — `ProtectedRoute` 밖에 배치 (로그인 불필요)
@@ -16,6 +22,19 @@
   - `Gallery.css` — 반응형 그리드 레이아웃 (640px 이하 단일 컬럼)
   - Layout 네비게이션에 "갤러리" 링크 추가
   - GalleryPage 단위 테스트 8개 추가 (vitest)
+- **feat(viewer):** GitHub Pages 온라인 데모 배포 설정 (#227, PR #245)
+  - `deploy-demo.yml` GitHub Actions 워크플로우 — main push 시 자동 배포
+  - Vite `base` 경로를 `VITE_BASE_PATH` 환경변수로 설정
+  - `BrowserRouter basename` 동적 설정으로 서브 경로 배포 지원
+  - `404.html` 복사로 SPA 라우팅 지원
+  - 배포 URL: `https://conaonda.github.io/EXTube/gallery`
+
+### Fixed
+- **fix(viewer):** 갤러리 로드 에러 UI 및 샘플 데이터 추가 (#243, PR #244)
+  - `GalleryErrorBoundary` 컴포넌트 — 3D 데이터 로드 실패 시 에러 UI 표시
+  - "다시 시도" / "갤러리로 돌아가기" 버튼 제공
+  - 최소 샘플 PLY 파일(8 vertex cube) `public/samples/street/point_cloud.ply` 추가
+  - 에러 UI 테스트 4건 추가
 ---
 
 ## [0.41.0] - 2026-03-07
