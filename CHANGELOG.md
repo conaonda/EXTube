@@ -52,10 +52,6 @@
 ### Fixed
 - **fix(ci):** backend lint 에러 및 vitest e2e 수집 문제 해결 (#221, #222, PR #229)
 
----
-
-## [0.40.0] - 2026-03-06
-
 ### Sprint 18
 
 ### Added
