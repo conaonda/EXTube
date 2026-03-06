@@ -38,10 +38,10 @@ def _get_auth_headers() -> dict[str, str]:
     pwd = CryptContext(schemes=["bcrypt"], deprecated="auto")
     _job_store._conn.execute("DELETE FROM users")
     _job_store._conn.commit()
-    _job_store.users.create("rl_test_user", "rltestuser", pwd.hash("testpass123"))
+    _job_store.users.create("rl_test_user", "rltestuser", pwd.hash("Test1234!"))
     resp = client.post(
         "/auth/login",
-        data={"username": "rltestuser", "password": "testpass123"},
+        data={"username": "rltestuser", "password": "Test1234!"},
     )
     return {"Authorization": f"Bearer {resp.json()['access_token']}"}
 

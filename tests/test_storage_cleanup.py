@@ -49,13 +49,13 @@ def _clear_state():
             shutil.rmtree(d, ignore_errors=True)
 
 
-def _register_and_login(username="testuser", password="testpass123"):
+def _register_and_login(username="testuser", password="Test1234!"):
     client.post("/auth/register", json={"username": username, "password": password})
     resp = client.post("/auth/login", data={"username": username, "password": password})
     return resp.json()
 
 
-def _auth_header(username="testuser", password="testpass123") -> dict:
+def _auth_header(username="testuser", password="Test1234!") -> dict:
     tokens = _register_and_login(username, password)
     return {"Authorization": f"Bearer {tokens['access_token']}"}
 

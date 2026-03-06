@@ -13,7 +13,7 @@ client = TestClient(app, raise_server_exceptions=False)
 
 _TEST_USER_ID = "test_user_mid"
 _TEST_USERNAME = "midtestuser"
-_TEST_PASSWORD = "testpass123"
+_TEST_PASSWORD = "Test1234!"
 
 
 def _reset_rate_limiter():

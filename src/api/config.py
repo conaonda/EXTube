@@ -2,10 +2,16 @@
 
 from __future__ import annotations
 
+import logging
+import warnings
 from functools import lru_cache
 from pathlib import Path
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+logger = logging.getLogger(__name__)
+
+_DEFAULT_JWT_SECRET = "change-me-in-production"
 
 
 class Settings(BaseSettings):
@@ -52,16 +58,44 @@ class Settings(BaseSettings):
     log_json: bool = True
 
     # JWT 인증
-    jwt_secret_key: str = "change-me-in-production"
+    jwt_secret_key: str = _DEFAULT_JWT_SECRET
     jwt_algorithm: str = "HS256"
     access_token_expire_minutes: int = 30
     refresh_token_expire_days: int = 7
+
+    # 로그인 실패 제한
+    max_login_attempts: int = 5
+    login_lockout_seconds: int = 900  # 15분
 
     @property
     def cors_origin_list(self) -> list[str]:
         return [o.strip() for o in self.cors_origins.split(",") if o.strip()]
 
+    def validate_production_settings(self) -> None:
+        """프로덕션 환경에서 필수 보안 설정을 검증한다."""
+        if self.jwt_secret_key == _DEFAULT_JWT_SECRET:
+            if self.environment == "production":
+                raise RuntimeError(
+                    "프로덕션 환경에서 JWT 기본키를 사용할 수 없습니다. "
+                    "EXTUBE_JWT_SECRET_KEY 환경변수를 설정하세요."
+                )
+            warnings.warn(
+                "JWT 기본키가 사용 중입니다. "
+                "프로덕션 배포 전 "
+                "EXTUBE_JWT_SECRET_KEY를 변경하세요.",
+                UserWarning,
+                stacklevel=2,
+            )
+
+        if self.environment == "production" and "*" in self.cors_origins:
+            raise RuntimeError(
+                "프로덕션 환경에서 CORS 와일드카드(*)를 사용할 수 없습니다. "
+                "EXTUBE_CORS_ORIGINS 환경변수를 설정하세요."
+            )
+
 
 @lru_cache
 def get_settings() -> Settings:
-    return Settings()
+    settings = Settings()
+    settings.validate_production_settings()
+    return settings

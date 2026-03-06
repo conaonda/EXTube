@@ -12,9 +12,9 @@ from src.api.ws import progress_manager
 client = TestClient(app)
 
 TEST_USER = "wsuser"
-TEST_PASS = "testpass123"
+TEST_PASS = "Test1234!"
 OTHER_USER = "otheruser"
-OTHER_PASS = "otherpass123"
+OTHER_PASS = "OtherPass1!"
 
 
 @pytest.fixture(autouse=True)
