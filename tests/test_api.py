@@ -102,8 +102,8 @@ class TestCreateJob:
         assert resp.status_code == 400
         assert "유효하지 않은" in resp.json()["detail"]
 
-    @patch("src.api.main._enqueue_job")
-    @patch("src.api.main.fetch_video_metadata", return_value=_MOCK_METADATA)
+    @patch("src.api.routers.jobs._enqueue_job")
+    @patch("src.api.routers.jobs.fetch_video_metadata", return_value=_MOCK_METADATA)
     def test_valid_url_creates_job(self, mock_meta, mock_run):
         """유효한 URL로 작업을 생성한다."""
         headers = _get_auth_headers()
@@ -118,8 +118,8 @@ class TestCreateJob:
         assert data["url"] == ("https://www.youtube.com/watch?v=dQw4w9WgXcQ")
         assert _job_store.get(data["id"]) is not None
 
-    @patch("src.api.main._enqueue_job")
-    @patch("src.api.main.fetch_video_metadata", return_value=_MOCK_METADATA)
+    @patch("src.api.routers.jobs._enqueue_job")
+    @patch("src.api.routers.jobs.fetch_video_metadata", return_value=_MOCK_METADATA)
     def test_custom_params(self, mock_meta, mock_run):
         """커스텀 파라미터가 전달된다."""
         headers = _get_auth_headers()
@@ -162,8 +162,8 @@ class TestCreateJob:
 class TestJobConcurrencyLimit:
     """사용자별 동시 실행 제한 테스트."""
 
-    @patch("src.api.main._enqueue_job")
-    @patch("src.api.main.fetch_video_metadata", return_value=_MOCK_METADATA)
+    @patch("src.api.routers.jobs._enqueue_job")
+    @patch("src.api.routers.jobs.fetch_video_metadata", return_value=_MOCK_METADATA)
     def test_within_limit_succeeds(self, mock_meta, mock_run):
         """제한 이내의 Job 생성은 성공한다."""
         headers = _get_auth_headers()
@@ -174,8 +174,8 @@ class TestJobConcurrencyLimit:
         resp2 = client.post("/api/jobs", json={"url": url}, headers=headers)
         assert resp2.status_code == 201
 
-    @patch("src.api.main._enqueue_job")
-    @patch("src.api.main.fetch_video_metadata", return_value=_MOCK_METADATA)
+    @patch("src.api.routers.jobs._enqueue_job")
+    @patch("src.api.routers.jobs.fetch_video_metadata", return_value=_MOCK_METADATA)
     def test_exceeding_limit_returns_429(self, mock_meta, mock_run):
         """제한 초과 시 429를 반환한다."""
         headers = _get_auth_headers()
@@ -188,8 +188,8 @@ class TestJobConcurrencyLimit:
         assert resp.status_code == 429
         assert "동시 실행 제한 초과" in resp.json()["detail"]
 
-    @patch("src.api.main._enqueue_job")
-    @patch("src.api.main.fetch_video_metadata", return_value=_MOCK_METADATA)
+    @patch("src.api.routers.jobs._enqueue_job")
+    @patch("src.api.routers.jobs.fetch_video_metadata", return_value=_MOCK_METADATA)
     def test_completed_jobs_not_counted(self, mock_meta, mock_run):
         """완료된 Job은 제한에 포함되지 않는다."""
         headers = _get_auth_headers()
@@ -203,8 +203,8 @@ class TestJobConcurrencyLimit:
         resp = client.post("/api/jobs", json={"url": url, "force_reprocess": True}, headers=headers)
         assert resp.status_code == 201
 
-    @patch("src.api.main._enqueue_job")
-    @patch("src.api.main.fetch_video_metadata", return_value=_MOCK_METADATA)
+    @patch("src.api.routers.jobs._enqueue_job")
+    @patch("src.api.routers.jobs.fetch_video_metadata", return_value=_MOCK_METADATA)
     def test_failed_jobs_not_counted(self, mock_meta, mock_run):
         """실패한 Job은 제한에 포함되지 않는다."""
         headers = _get_auth_headers()
@@ -218,8 +218,8 @@ class TestJobConcurrencyLimit:
         resp = client.post("/api/jobs", json={"url": url}, headers=headers)
         assert resp.status_code == 201
 
-    @patch("src.api.main._enqueue_job")
-    @patch("src.api.main.fetch_video_metadata", return_value=_MOCK_METADATA)
+    @patch("src.api.routers.jobs._enqueue_job")
+    @patch("src.api.routers.jobs.fetch_video_metadata", return_value=_MOCK_METADATA)
     def test_processing_jobs_counted(self, mock_meta, mock_run):
         """처리 중인 Job도 제한에 포함된다."""
         headers = _get_auth_headers()
@@ -237,8 +237,8 @@ class TestJobConcurrencyLimit:
 class TestDuplicateUrlPrevention:
     """동일 URL 중복 처리 방지 테스트."""
 
-    @patch("src.api.main._enqueue_job")
-    @patch("src.api.main.fetch_video_metadata", return_value=_MOCK_METADATA)
+    @patch("src.api.routers.jobs._enqueue_job")
+    @patch("src.api.routers.jobs.fetch_video_metadata", return_value=_MOCK_METADATA)
     def test_duplicate_url_returns_existing_job(self, mock_meta, mock_enqueue):
         """동일 URL의 완료된 Job이 있으면 기존 결과를 반환한다."""
         headers = _get_auth_headers()
@@ -250,8 +250,8 @@ class TestDuplicateUrlPrevention:
         assert resp.json()["status"] == "completed"
         mock_enqueue.assert_not_called()
 
-    @patch("src.api.main._enqueue_job")
-    @patch("src.api.main.fetch_video_metadata", return_value=_MOCK_METADATA)
+    @patch("src.api.routers.jobs._enqueue_job")
+    @patch("src.api.routers.jobs.fetch_video_metadata", return_value=_MOCK_METADATA)
     def test_force_reprocess_creates_new_job(self, mock_meta, mock_enqueue):
         """force_reprocess=true이면 기존 결과가 있어도 새 Job을 생성한다."""
         headers = _get_auth_headers()
@@ -267,8 +267,8 @@ class TestDuplicateUrlPrevention:
         assert resp.json()["status"] == "pending"
         mock_enqueue.assert_called_once()
 
-    @patch("src.api.main._enqueue_job")
-    @patch("src.api.main.fetch_video_metadata", return_value=_MOCK_METADATA)
+    @patch("src.api.routers.jobs._enqueue_job")
+    @patch("src.api.routers.jobs.fetch_video_metadata", return_value=_MOCK_METADATA)
     def test_no_completed_job_creates_new(self, mock_meta, mock_enqueue):
         """완료된 Job이 없으면 새 Job을 생성한다."""
         headers = _get_auth_headers()
@@ -279,8 +279,8 @@ class TestDuplicateUrlPrevention:
         assert resp.json()["id"] != "aabbccddeef0"
         mock_enqueue.assert_called_once()
 
-    @patch("src.api.main._enqueue_job")
-    @patch("src.api.main.fetch_video_metadata", return_value=_MOCK_METADATA)
+    @patch("src.api.routers.jobs._enqueue_job")
+    @patch("src.api.routers.jobs.fetch_video_metadata", return_value=_MOCK_METADATA)
     def test_other_user_completed_job_not_returned(self, mock_meta, mock_enqueue):
         """다른 유저의 완료된 Job은 반환하지 않는다."""
         headers = _get_auth_headers()
@@ -302,8 +302,8 @@ class TestGetJob:
         resp = client.get("/api/jobs/nonexistent", headers=headers)
         assert resp.status_code == 404
 
-    @patch("src.api.main._enqueue_job")
-    @patch("src.api.main.fetch_video_metadata", return_value=_MOCK_METADATA)
+    @patch("src.api.routers.jobs._enqueue_job")
+    @patch("src.api.routers.jobs.fetch_video_metadata", return_value=_MOCK_METADATA)
     def test_get_pending_job(self, mock_meta, mock_run):
         """생성된 작업의 상태를 조회한다."""
         headers = _get_auth_headers()
@@ -469,7 +469,7 @@ class TestDeleteJob:
         assert resp.status_code == 204
         assert _job_store.get("aabbccddeed3") is None
 
-    @patch("src.api.main.OUTPUT_BASE_DIR")
+    @patch("src.api.dependencies.OUTPUT_BASE_DIR")
     def test_delete_cleans_disk(self, mock_base_dir, tmp_path):
         """삭제 시 디스크 파일도 정리한다."""
         headers = _get_auth_headers()
@@ -494,7 +494,7 @@ class TestCancelJob:
         resp = client.post("/api/jobs/nonexistent/cancel", headers=headers)
         assert resp.status_code == 404
 
-    @patch("src.api.main._get_redis_connection")
+    @patch("src.api.routers.jobs._get_redis_connection")
     def test_cancel_pending_job(self, mock_redis):
         """대기 중인 작업을 취소한다."""
         headers = _get_auth_headers()
@@ -506,7 +506,7 @@ class TestCancelJob:
         assert data["status"] == "cancelled"
         assert _job_store.get("aabbccddeca1")["status"] == "cancelled"
 
-    @patch("src.api.main._get_redis_connection")
+    @patch("src.api.routers.jobs._get_redis_connection")
     def test_cancel_processing_job(self, mock_redis):
         """처리 중인 작업을 취소한다."""
         headers = _get_auth_headers()
@@ -516,7 +516,7 @@ class TestCancelJob:
         assert resp.status_code == 200
         assert resp.json()["status"] == "cancelled"
 
-    @patch("src.api.main._get_redis_connection")
+    @patch("src.api.routers.jobs._get_redis_connection")
     def test_cancel_retrying_job(self, mock_redis):
         """재시도 중인 작업을 취소한다."""
         headers = _get_auth_headers()
@@ -541,7 +541,7 @@ class TestCancelJob:
         resp = client.post("/api/jobs/aabbccddeca5/cancel", headers=headers)
         assert resp.status_code == 409
 
-    @patch("src.api.main._get_redis_connection")
+    @patch("src.api.routers.jobs._get_redis_connection")
     def test_cancel_already_cancelled_returns_409(self, mock_redis):
         """이미 취소된 작업은 다시 취소할 수 없다."""
         headers = _get_auth_headers()
@@ -567,9 +567,9 @@ class TestCancelJob:
         assert resp.status_code == 204
         assert _job_store.get("aabbccddeca8") is None
 
-    @patch("src.api.main._get_redis_connection")
-    @patch("src.api.main._enqueue_job")
-    @patch("src.api.main.fetch_video_metadata", return_value=_MOCK_METADATA)
+    @patch("src.api.routers.jobs._get_redis_connection")
+    @patch("src.api.routers.jobs._enqueue_job")
+    @patch("src.api.routers.jobs.fetch_video_metadata", return_value=_MOCK_METADATA)
     def test_cancelled_jobs_not_counted_in_limit(self, mock_meta, mock_enqueue, mock_redis):
         """취소된 Job은 동시 실행 제한에 포함되지 않는다."""
         headers = _get_auth_headers()
@@ -609,7 +609,7 @@ class TestGetJobResult:
         resp = client.get("/api/jobs/aabbccddeef3/result", headers=headers)
         assert resp.status_code == 404
 
-    @patch("src.api.main.OUTPUT_BASE_DIR")
+    @patch("src.api.dependencies.OUTPUT_BASE_DIR")
     def test_download_ply(self, mock_base_dir, tmp_path):
         """PLY 파일을 다운로드한다."""
         headers = _get_auth_headers()
@@ -650,7 +650,7 @@ class TestGetSplatFile:
         resp = client.get("/api/jobs/aabbccddees2/splat", headers=headers)
         assert resp.status_code == 404
 
-    @patch("src.api.main.OUTPUT_BASE_DIR")
+    @patch("src.api.dependencies.OUTPUT_BASE_DIR")
     def test_serve_splat_file(self, mock_base_dir, tmp_path):
         """GS splat 파일을 서빙한다."""
         headers = _get_auth_headers()
@@ -713,8 +713,8 @@ class TestHealth:
             detail = data["detail"]
             assert detail["database"] == "ok" or "error" in detail["database"]
 
-    @patch("src.api.main._get_redis_connection")
-    @patch("src.api.main._job_store")
+    @patch("src.api.routers.jobs._get_redis_connection")
+    @patch("src.api.dependencies._job_store")
     def test_health_ready_db_failure(self, mock_store, mock_redis):
         """DB 연결 실패 시 503을 반환한다."""
         mock_store.ping.side_effect = RuntimeError("DB 연결 실패")
@@ -747,7 +747,7 @@ class TestGetPotreeFile:
         resp = client.get(url, headers=headers)
         assert resp.status_code == 404
 
-    @patch("src.api.main.OUTPUT_BASE_DIR")
+    @patch("src.api.dependencies.OUTPUT_BASE_DIR")
     def test_serve_potree_file(self, mock_base_dir, tmp_path):
         """Potree 파일을 서빙한다."""
         headers = _get_auth_headers()
@@ -764,7 +764,7 @@ class TestGetPotreeFile:
         assert resp.status_code == 200
         assert resp.json() == {"version": "2.0"}
 
-    @patch("src.api.main.OUTPUT_BASE_DIR")
+    @patch("src.api.dependencies.OUTPUT_BASE_DIR")
     def test_path_traversal_blocked(self, mock_base_dir, tmp_path):
         """경로 순회 공격이 차단된다."""
         headers = _get_auth_headers()
@@ -833,7 +833,7 @@ class TestStreamJob:
         assert len(events) == 1
         assert events[0]["status"] == "completed"
 
-    @patch("src.api.main._SSE_TIMEOUT_SECONDS", 0)
+    @patch("src.api.routers.jobs._SSE_TIMEOUT_SECONDS", 0)
     def test_stream_timeout(self):
         """타임아웃 시 연결이 종료된다."""
         headers = _get_auth_headers()
@@ -859,7 +859,7 @@ class TestListJobFiles:
         resp = client.get("/api/jobs/aabbccddeeb1/files", headers=headers)
         assert resp.status_code == 400
 
-    @patch("src.api.main.OUTPUT_BASE_DIR")
+    @patch("src.api.dependencies.OUTPUT_BASE_DIR")
     def test_list_files(self, mock_base_dir, tmp_path):
         """결과 파일 목록을 반환한다."""
         headers = _get_auth_headers()
@@ -881,7 +881,7 @@ class TestListJobFiles:
         assert "points.ply" in names
         assert "cameras.txt" in names
 
-    @patch("src.api.main.OUTPUT_BASE_DIR")
+    @patch("src.api.dependencies.OUTPUT_BASE_DIR")
     def test_no_reconstruction_dir(self, mock_base_dir, tmp_path):
         """reconstruction 디렉토리가 없으면 빈 목록을 반환한다."""
         headers = _get_auth_headers()
@@ -915,7 +915,7 @@ class TestDownloadJobFile:
         )
         assert resp.status_code == 400
 
-    @patch("src.api.main.OUTPUT_BASE_DIR")
+    @patch("src.api.dependencies.OUTPUT_BASE_DIR")
     def test_download_file(self, mock_base_dir, tmp_path):
         """결과 파일을 다운로드한다."""
         headers = _get_auth_headers()
@@ -935,7 +935,7 @@ class TestDownloadJobFile:
         assert resp.content == b"ply binary data"
         assert "attachment" in resp.headers.get("content-disposition", "")
 
-    @patch("src.api.main.OUTPUT_BASE_DIR")
+    @patch("src.api.dependencies.OUTPUT_BASE_DIR")
     def test_file_not_exists(self, mock_base_dir, tmp_path):
         """존재하지 않는 파일은 404를 반환한다."""
         headers = _get_auth_headers()
@@ -952,7 +952,7 @@ class TestDownloadJobFile:
         )
         assert resp.status_code == 404
 
-    @patch("src.api.main.OUTPUT_BASE_DIR")
+    @patch("src.api.dependencies.OUTPUT_BASE_DIR")
     def test_path_traversal_blocked(self, mock_base_dir, tmp_path):
         """경로 순회 공격이 차단된다."""
         headers = _get_auth_headers()
@@ -969,7 +969,7 @@ class TestDownloadJobFile:
         )
         assert resp.status_code in (400, 404)
 
-    @patch("src.api.main.OUTPUT_BASE_DIR")
+    @patch("src.api.dependencies.OUTPUT_BASE_DIR")
     def test_download_nested_file(self, mock_base_dir, tmp_path):
         """하위 디렉토리의 파일도 다운로드할 수 있다."""
         headers = _get_auth_headers()
@@ -1053,8 +1053,8 @@ class TestMetrics:
 class TestVideoValidation:
     """영상 길이/크기 제한 테스트."""
 
-    @patch("src.api.main._enqueue_job")
-    @patch("src.api.main.fetch_video_metadata")
+    @patch("src.api.routers.jobs._enqueue_job")
+    @patch("src.api.routers.jobs.fetch_video_metadata")
     def test_duration_exceeds_limit(self, mock_meta, mock_enqueue):
         """영상 길이 초과 시 422를 반환한다."""
         mock_meta.return_value = VideoMetadata(
@@ -1071,8 +1071,8 @@ class TestVideoValidation:
         assert "영상 길이" in resp.json()["detail"]
         mock_enqueue.assert_not_called()
 
-    @patch("src.api.main._enqueue_job")
-    @patch("src.api.main.fetch_video_metadata")
+    @patch("src.api.routers.jobs._enqueue_job")
+    @patch("src.api.routers.jobs.fetch_video_metadata")
     def test_filesize_exceeds_limit(self, mock_meta, mock_enqueue):
         """예상 파일 크기 초과 시 422를 반환한다."""
         mock_meta.return_value = VideoMetadata(
@@ -1089,8 +1089,8 @@ class TestVideoValidation:
         assert "파일 크기" in resp.json()["detail"]
         mock_enqueue.assert_not_called()
 
-    @patch("src.api.main._enqueue_job")
-    @patch("src.api.main.fetch_video_metadata")
+    @patch("src.api.routers.jobs._enqueue_job")
+    @patch("src.api.routers.jobs.fetch_video_metadata")
     def test_metadata_fetch_failure(self, mock_meta, mock_enqueue):
         """메타데이터 조회 실패 시 422를 반환한다."""
         mock_meta.side_effect = RuntimeError("네트워크 오류")
@@ -1103,8 +1103,8 @@ class TestVideoValidation:
         assert resp.status_code == 503
         assert "영상 정보를 가져올 수 없습니다" in resp.json()["detail"]
 
-    @patch("src.api.main._enqueue_job")
-    @patch("src.api.main.fetch_video_metadata")
+    @patch("src.api.routers.jobs._enqueue_job")
+    @patch("src.api.routers.jobs.fetch_video_metadata")
     def test_duration_none_rejected(self, mock_meta, mock_enqueue):
         """duration=None(라이브 스트림 등)은 422를 반환한다."""
         mock_meta.return_value = VideoMetadata(
@@ -1121,8 +1121,8 @@ class TestVideoValidation:
         assert "영상 길이를 확인할 수 없습니다" in resp.json()["detail"]
         mock_enqueue.assert_not_called()
 
-    @patch("src.api.main._enqueue_job")
-    @patch("src.api.main.fetch_video_metadata")
+    @patch("src.api.routers.jobs._enqueue_job")
+    @patch("src.api.routers.jobs.fetch_video_metadata")
     def test_within_limits_succeeds(self, mock_meta, mock_enqueue):
         """제한 이내 영상은 정상 생성된다."""
         mock_meta.return_value = VideoMetadata(
@@ -1137,8 +1137,8 @@ class TestVideoValidation:
         )
         assert resp.status_code == 201
 
-    @patch("src.api.main._enqueue_job")
-    @patch("src.api.main.fetch_video_metadata")
+    @patch("src.api.routers.jobs._enqueue_job")
+    @patch("src.api.routers.jobs.fetch_video_metadata")
     def test_no_filesize_info_passes(self, mock_meta, mock_enqueue):
         """파일 크기 정보가 없으면 크기 검증을 건너뛴다."""
         mock_meta.return_value = VideoMetadata(

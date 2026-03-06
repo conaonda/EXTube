@@ -81,9 +81,9 @@ class TestRateLimitMiddleware:
         headers = _get_auth_headers()
         _reset_rate_limiter()
         with (
-            patch("src.api.main.validate_youtube_url", return_value=True),
-            patch("src.api.main.fetch_video_metadata", return_value=_MOCK_METADATA),
-            patch("src.api.main._enqueue_job"),
+            patch("src.api.routers.jobs.validate_youtube_url", return_value=True),
+            patch("src.api.routers.jobs.fetch_video_metadata", return_value=_MOCK_METADATA),
+            patch("src.api.routers.jobs._enqueue_job"),
         ):
             for _ in range(5):
                 resp = client.post(

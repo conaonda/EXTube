@@ -202,8 +202,8 @@ class TestJobIsolation:
             height=1080, filesize_approx=50 * 1024 * 1024,
         )
 
-        with patch("src.api.main._enqueue_job"), \
-             patch("src.api.main.fetch_video_metadata", return_value=_mock_meta):
+        with patch("src.api.routers.jobs._enqueue_job"), \
+             patch("src.api.routers.jobs.fetch_video_metadata", return_value=_mock_meta):
             resp = client.post(
                 "/api/jobs",
                 json={"url": "https://www.youtube.com/watch?v=dQw4w9WgXcQ"},
@@ -228,8 +228,8 @@ class TestJobIsolation:
             height=1080, filesize_approx=50 * 1024 * 1024,
         )
 
-        with patch("src.api.main._enqueue_job"), \
-             patch("src.api.main.fetch_video_metadata", return_value=_mock_meta):
+        with patch("src.api.routers.jobs._enqueue_job"), \
+             patch("src.api.routers.jobs.fetch_video_metadata", return_value=_mock_meta):
             resp = client.post(
                 "/api/jobs",
                 json={"url": "https://www.youtube.com/watch?v=dQw4w9WgXcQ"},
@@ -253,8 +253,8 @@ class TestJobIsolation:
             height=1080, filesize_approx=50 * 1024 * 1024,
         )
 
-        with patch("src.api.main._enqueue_job"), \
-             patch("src.api.main.fetch_video_metadata", return_value=_mock_meta):
+        with patch("src.api.routers.jobs._enqueue_job"), \
+             patch("src.api.routers.jobs.fetch_video_metadata", return_value=_mock_meta):
             client.post(
                 "/api/jobs",
                 json={"url": "https://www.youtube.com/watch?v=dQw4w9WgXcQ"},
