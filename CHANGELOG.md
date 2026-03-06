@@ -8,10 +8,24 @@
 
 ## [Unreleased]
 
-### 예정된 변경사항 (PR OPEN)
-- **fix(api):** Job 생성 파라미터 입력 검증 강화 (#225) — `frame_interval`, `blur_threshold`, `camera_model`, `gs_max_iterations` 범위/화이트리스트 검증
-- **fix(reconstruction):** 파이프라인 견고성 개선 (#226) — 블러 필터 후 프레임 부족 조기 실패, sparse reconstruction 0포인트 체크, 타임아웃 에러 변환
-- **fix(ci):** test_rate_limit.py E501 및 Toast.tsx TS2554 수정 (#232)
+---
+
+## [0.41.0] - 2026-03-07
+
+### Sprint 20-22
+
+### Fixed
+- **fix(api):** Job 생성 파라미터 입력 검증 강화 (#225, PR #235)
+  - `frame_interval`: 0.1~300초 범위 제한 (Pydantic `ge`/`le`)
+  - `blur_threshold`: 0~500 범위 제한
+  - `camera_model`: COLMAP 지원 10개 모델 화이트리스트 검증 (`field_validator`)
+  - `gs_max_iterations`: 1~100,000 범위 제한
+  - 잘못된 파라미터에 즉각 422 응답으로 파이프라인 실패 사전 차단
+- **fix(reconstruction):** 파이프라인 견고성 개선 (#226, PR #234)
+  - 블러 필터링 후 프레임 2장 미만 시 조기 실패 및 사용자 안내 메시지
+  - Sparse reconstruction 후 `num_points3d == 0`이면 즉시 실패 처리
+  - `subprocess.TimeoutExpired`를 사용자 친화적 `RuntimeError`로 변환
+- **fix(ci):** test_rate_limit.py E501 및 Toast.tsx TS2554 수정 (#232, PR #233)
 
 ---
 
@@ -303,7 +317,8 @@
   - Docker 개발 환경 (Dockerfile + docker-compose.yml)
   - GitHub Actions CI 워크플로우
 
-[Unreleased]: https://github.com/conaonda/EXTube/compare/v0.40.0...HEAD
+[Unreleased]: https://github.com/conaonda/EXTube/compare/v0.41.0...HEAD
+[0.41.0]: https://github.com/conaonda/EXTube/compare/v0.40.0...v0.41.0
 [0.40.0]: https://github.com/conaonda/EXTube/compare/v0.39.0...v0.40.0
 [0.39.0]: https://github.com/conaonda/EXTube/compare/v0.38.0...v0.39.0
 [0.38.0]: https://github.com/conaonda/EXTube/compare/v0.37.0...v0.38.0
