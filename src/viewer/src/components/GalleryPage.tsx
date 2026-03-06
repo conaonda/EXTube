@@ -19,6 +19,7 @@ export default function GalleryPage() {
             &larr; 갤러리로 돌아가기
           </button>
           <span className="gallery-viewer-title">{selected.title}</span>
+          <span className="gallery-viewer-badge">{selected.type.toUpperCase()}</span>
         </div>
         <div className="gallery-viewer-canvas">
           <ViewerCanvas plyUrl={plyUrl} potreeUrl={potreeUrl} splatUrl={splatUrl} />
@@ -44,7 +45,15 @@ export default function GalleryPage() {
             aria-label={`${item.title} 샘플 보기`}
           >
             <div className="gallery-card-thumbnail">
-              <img src={item.thumbnail} alt={item.title} loading="lazy" />
+              <span className="gallery-card-placeholder">3D</span>
+              <img
+                src={item.thumbnail}
+                alt={item.title}
+                loading="lazy"
+                onError={(e) => {
+                  e.currentTarget.style.display = 'none'
+                }}
+              />
             </div>
             <div className="gallery-card-body">
               <h3 className="gallery-card-title">{item.title}</h3>
