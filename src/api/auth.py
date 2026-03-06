@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 import re
 import time
 import uuid
@@ -26,15 +27,55 @@ router = APIRouter(prefix="/auth", tags=["auth"])
 # 모듈 수준 참조 — main.py에서 set_job_store()로 주입
 _job_store: JobStore | None = None
 
-# 로그인 실패 추적: username -> (실패 횟수, 마지막 실패 시각)
-# TODO: 현재 in-memory 저장으로 단일 프로세스에서만 유효합니다.
-#       스케일아웃(멀티 인스턴스) 환경에서는 Redis 기반으로 전환 필요.
+# 로그인 실패 추적 (in-memory fallback)
 _login_attempts: dict[str, tuple[int, float]] = defaultdict(lambda: (0, 0.0))
+
+_LOGIN_FAIL_PREFIX = "login_fail:"
+
+logger = logging.getLogger(__name__)
+
+
+try:
+    import redis
+except ImportError:  # pragma: no cover
+    redis = None  # type: ignore[assignment]
+
+
+def _get_redis():  # noqa: ANN202
+    """Redis 클라이언트를 반환한다. 연결 실패 시 None을 반환한다."""
+    if redis is None:
+        return None
+    try:
+        settings = get_settings()
+        client = redis.from_url(settings.redis_url, decode_responses=True)
+        client.ping()
+        return client
+    except Exception:  # noqa: BLE001
+        return None
 
 
 def _check_login_lockout(username: str) -> None:
-    """로그인 잠금 상태를 확인한다."""
+    """로그인 잠금 상태를 확인한다. Redis 우선, 실패 시 in-memory fallback."""
     settings = get_settings()
+
+    r = _get_redis()
+    if r is not None:
+        key = f"{_LOGIN_FAIL_PREFIX}{username}"
+        count_str = r.get(key)
+        if count_str is not None:
+            count = int(count_str)
+            if count >= settings.max_login_attempts:
+                ttl = r.ttl(key)
+                if ttl > 0:
+                    raise HTTPException(
+                        status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+                        detail=f"로그인 시도 횟수 초과. {ttl}초 후 다시 시도하세요.",
+                    )
+                # TTL 만료 — 키 삭제
+                r.delete(key)
+        return
+
+    # in-memory fallback
     count, last_fail = _login_attempts[username]
     if count >= settings.max_login_attempts:
         elapsed = time.time() - last_fail
@@ -49,18 +90,41 @@ def _check_login_lockout(username: str) -> None:
 
 
 def _record_login_failure(username: str) -> None:
-    """로그인 실패를 기록한다."""
+    """로그인 실패를 기록한다. Redis 우선, 실패 시 in-memory fallback."""
+    settings = get_settings()
+
+    r = _get_redis()
+    if r is not None:
+        key = f"{_LOGIN_FAIL_PREFIX}{username}"
+        new_count = r.incr(key)
+        if new_count == 1:
+            r.expire(key, settings.login_lockout_seconds)
+        return
+
+    # in-memory fallback
     count, _ = _login_attempts[username]
     _login_attempts[username] = (count + 1, time.time())
 
 
 def _clear_login_attempts(username: str) -> None:
     """로그인 성공 시 실패 기록을 초기화한다."""
+    r = _get_redis()
+    if r is not None:
+        r.delete(f"{_LOGIN_FAIL_PREFIX}{username}")
     _login_attempts.pop(username, None)
 
 
 def reset_login_attempts() -> None:
     """모든 로그인 실패 기록을 초기화한다 (테스트용)."""
+    r = _get_redis()
+    if r is not None:
+        cursor = 0
+        while True:
+            cursor, keys = r.scan(cursor, match=f"{_LOGIN_FAIL_PREFIX}*", count=100)
+            if keys:
+                r.delete(*keys)
+            if cursor == 0:
+                break
     _login_attempts.clear()
 
 
