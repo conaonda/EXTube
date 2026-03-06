@@ -155,7 +155,7 @@ def run_pipeline(
             max_image_size=max_image_size,
             gaussian_splatting=gaussian_splatting,
             gs_max_iterations=gs_max_iterations,
-            progress_callback=lambda step, pct, msg: _update_progress(step, pct, msg),
+            progress_callback=_update_progress,
         )
         reconstruction_duration = round(time.monotonic() - stage_start, 2)
         logger.info(
