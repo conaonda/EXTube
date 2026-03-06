@@ -111,7 +111,7 @@ export default function App() {
   // Load job from URL param
   useEffect(() => {
     if (!jobId) return
-    loadJob(jobId) // eslint-disable-line react-hooks/set-state-in-effect -- loading from URL param
+    loadJob(jobId)
   }, [jobId, loadJob])
 
   const handleSubmit = useCallback(
