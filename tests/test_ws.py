@@ -6,7 +6,8 @@ import json
 
 import pytest
 from fastapi.testclient import TestClient
-from src.api.main import JobStatus, _job_store, app
+from src.api.main import _job_store, app
+from src.api.routers.jobs import JobStatus
 from src.api.ws import progress_manager
 
 client = TestClient(app)

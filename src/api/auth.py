@@ -27,6 +27,8 @@ router = APIRouter(prefix="/auth", tags=["auth"])
 _job_store: JobStore | None = None
 
 # 로그인 실패 추적: username -> (실패 횟수, 마지막 실패 시각)
+# TODO: 현재 in-memory 저장으로 단일 프로세스에서만 유효합니다.
+#       스케일아웃(멀티 인스턴스) 환경에서는 Redis 기반으로 전환 필요.
 _login_attempts: dict[str, tuple[int, float]] = defaultdict(lambda: (0, 0.0))
 
 
@@ -57,13 +59,20 @@ def _clear_login_attempts(username: str) -> None:
     _login_attempts.pop(username, None)
 
 
+def reset_login_attempts() -> None:
+    """모든 로그인 실패 기록을 초기화한다 (테스트용)."""
+    _login_attempts.clear()
+
+
 def set_job_store(store: JobStore) -> None:
     global _job_store  # noqa: PLW0603
     _job_store = store
 
 
 def _get_store() -> JobStore:
-    assert _job_store is not None
+    if _job_store is None:
+        msg = "JobStore 미초기화. set_job_store()를 먼저 호출하세요."
+        raise RuntimeError(msg)
     return _job_store
 
 

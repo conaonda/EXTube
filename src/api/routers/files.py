@@ -55,7 +55,7 @@ def get_job_result(
         )
 
     ply_resolved = Path(ply_path).resolve()
-    base_resolved = dependencies.OUTPUT_BASE_DIR.resolve()
+    base_resolved = dependencies.get_output_base_dir().resolve()
     if not ply_resolved.is_relative_to(base_resolved):
         raise HTTPException(
             status_code=400, detail="잘못된 파일 경로입니다",
@@ -98,7 +98,7 @@ def get_splat_file(
         )
 
     splat_resolved = Path(gs_splat_path).resolve()
-    base_resolved = dependencies.OUTPUT_BASE_DIR.resolve()
+    base_resolved = dependencies.get_output_base_dir().resolve()
     if not splat_resolved.is_relative_to(base_resolved):
         raise HTTPException(
             status_code=400, detail="잘못된 파일 경로입니다",
@@ -142,7 +142,7 @@ def get_potree_file(
             detail="Potree 데이터를 찾을 수 없습니다",
         )
 
-    base_resolved = dependencies.OUTPUT_BASE_DIR.resolve()
+    base_resolved = dependencies.get_output_base_dir().resolve()
     potree_resolved = Path(potree_dir).resolve()
     if not potree_resolved.is_relative_to(base_resolved):
         raise HTTPException(

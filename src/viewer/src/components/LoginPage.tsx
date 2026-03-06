@@ -101,6 +101,7 @@ export default function LoginPage() {
         <button
           type="submit"
           disabled={submitting}
+          data-testid="login-submit"
           style={{
             padding: '0.625rem',
             background: '#2563eb',
@@ -122,6 +123,7 @@ export default function LoginPage() {
 
         <button
           type="button"
+          data-testid="login-toggle"
           onClick={() => {
             setIsRegister(!isRegister)
             setError(null)

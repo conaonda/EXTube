@@ -25,11 +25,6 @@ from src.api.middleware import (
 from src.api.rate_limit import RateLimitMiddleware, RateLimitRule
 from src.api.routers.files import router as files_router
 from src.api.routers.health import router as health_router
-from src.api.routers.jobs import (  # noqa: F401
-    JobCreate,
-    JobResponse,
-    JobStatus,
-)
 from src.api.routers.jobs import (
     router as jobs_router,
 )

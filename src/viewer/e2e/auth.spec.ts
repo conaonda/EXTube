@@ -10,11 +10,11 @@ test.describe('로그인 플로우', () => {
     await expect(page.getByRole('heading', { name: '로그인' })).toBeVisible()
     await expect(page.getByPlaceholder('사용자명')).toBeVisible()
     await expect(page.getByPlaceholder('비밀번호')).toBeVisible()
-    await expect(page.getByRole('button', { name: '로그인' })).toBeVisible()
+    await expect(page.getByTestId('login-submit')).toBeVisible()
   })
 
   test('회원가입 모드로 전환할 수 있다', async ({ page }) => {
-    await page.getByRole('button', { name: /회원가입/ }).click()
+    await page.getByTestId('login-toggle').click()
     await expect(
       page.getByRole('heading', { name: '회원가입' }),
     ).toBeVisible()
@@ -43,7 +43,7 @@ test.describe('로그인 API 모킹 플로우', () => {
     await page.getByPlaceholder('비밀번호').fill('Test1234!')
 
     const responsePromise = page.waitForResponse('**/auth/login')
-    await page.getByRole('button', { name: '로그인' }).click()
+    await page.getByTestId('login-submit').click()
 
     const response = await responsePromise
     expect(response.status()).toBe(200)
@@ -63,7 +63,7 @@ test.describe('로그인 API 모킹 플로우', () => {
     await page.goto('/login')
     await page.getByPlaceholder('사용자명').fill('wronguser')
     await page.getByPlaceholder('비밀번호').fill('WrongPass1!')
-    await page.getByRole('button', { name: '로그인' }).click()
+    await page.getByTestId('login-submit').click()
 
     await expect(
       page.getByText('잘못된 사용자명 또는 비밀번호입니다'),

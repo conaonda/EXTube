@@ -32,6 +32,6 @@ def get_storage_usage(
     """현재 사용자의 스토리지 사용량을 반환한다."""
     store = get_job_store()
     data = store.get_user_storage_usage(
-        current_user["id"], dependencies.OUTPUT_BASE_DIR,
+        current_user["id"], dependencies.get_output_base_dir(),
     )
     return StorageUsageResponse(**data)
