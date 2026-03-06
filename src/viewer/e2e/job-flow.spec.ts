@@ -27,7 +27,7 @@ test.describe('Job 제출 플로우', () => {
       .locator('input[type="url"], input[type="text"]')
       .first()
     await urlInput.fill('https://invalid-url.com')
-    await page.getByRole('button', { name: /제출|시작|복원/ }).click()
+    await page.getByTestId('job-submit').click()
 
     await expect(page.getByRole('alert')).toBeVisible()
   })
@@ -62,7 +62,7 @@ test.describe('Job 제출 플로우', () => {
       .locator('input[type="url"], input[type="text"]')
       .first()
     await urlInput.fill('https://www.youtube.com/watch?v=dQw4w9WgXcQ')
-    await page.getByRole('button', { name: /제출|시작|복원/ }).click()
+    await page.getByTestId('job-submit').click()
 
     // Job 상태 표시 확인
     await expect(page.getByText(/pending|대기/i)).toBeVisible({

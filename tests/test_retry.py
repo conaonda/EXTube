@@ -6,8 +6,9 @@ from unittest.mock import patch
 
 import pytest
 from fastapi.testclient import TestClient
-from src.api.main import JobStatus, _job_store, app
+from src.api.main import _job_store, app
 from src.api.rate_limit import RateLimitMiddleware
+from src.api.routers.jobs import JobStatus
 from src.api.tasks import is_retryable_error
 
 client = TestClient(app)

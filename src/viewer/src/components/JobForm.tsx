@@ -31,6 +31,7 @@ export default function JobForm({ onSubmit, disabled }: JobFormProps) {
         disabled={disabled || !url.trim()}
         className="job-form-button"
         aria-label="3D 복원 시작"
+        data-testid="job-submit"
       >
         3D 복원
       </button>
