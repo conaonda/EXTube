@@ -13,8 +13,12 @@ const STATUS_LABELS: Record<string, string> = {
 const STAGE_LABELS: Record<string, string> = {
   download: '다운로드',
   extraction: '프레임 추출',
+  feature_matching: '특징점 매칭',
   reconstruction: '3D 복원',
+  export: '결과 내보내기',
 }
+
+const PIPELINE_STAGES = ['download', 'extraction', 'feature_matching', 'reconstruction', 'export']
 
 const CANCELLABLE_STATUSES = new Set(['pending', 'processing', 'retrying'])
 
@@ -38,10 +42,38 @@ export default function JobStatus({ job, progress, onCancel, cancelling }: JobSt
     >
       <strong>{label}</strong>
       {progress && job.status === 'processing' && (
-        <span className="job-status-progress">
-          {STAGE_LABELS[progress.stage] ?? progress.stage} {progress.percent}%
-          {progress.message && ` — ${progress.message}`}
-        </span>
+        <div className="job-status-progress">
+          <div className="job-status-stages">
+            {PIPELINE_STAGES.map((stage) => {
+              const currentIdx = PIPELINE_STAGES.indexOf(progress.stage)
+              const stageIdx = PIPELINE_STAGES.indexOf(stage)
+              const isActive = stage === progress.stage
+              const isDone = stageIdx < currentIdx || (isActive && progress.percent === 100)
+              return (
+                <span
+                  key={stage}
+                  className={`job-status-stage ${isDone ? 'job-status-stage--done' : isActive ? 'job-status-stage--active' : ''}`}
+                >
+                  {STAGE_LABELS[stage]}
+                </span>
+              )
+            })}
+          </div>
+          <div
+            className="job-status-bar"
+            role="progressbar"
+            aria-valuenow={progress.percent}
+            aria-valuemin={0}
+            aria-valuemax={100}
+            aria-label={`${STAGE_LABELS[progress.stage] ?? progress.stage} ${progress.percent}%`}
+          >
+            <div className="job-status-bar-fill" style={{ width: `${progress.percent}%` }} />
+          </div>
+          <span className="job-status-detail">
+            {STAGE_LABELS[progress.stage] ?? progress.stage} {progress.percent}%
+            {progress.message && ` — ${progress.message}`}
+          </span>
+        </div>
       )}
       {job.error && (
         <span className="job-status-error">

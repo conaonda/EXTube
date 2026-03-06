@@ -142,8 +142,8 @@ def run_pipeline(
                 f"blur_threshold 값을 낮추거나 frame_interval을 줄여 보세요."
             )
 
-        # 3. 3D 복원
-        _update_progress("reconstruction", 0, "3D 복원 시작")
+        # 3. 3D 복원 (feature_matching → reconstruction → export)
+        _update_progress("feature_matching", 0, "특징점 매칭 시작")
         stage_start = time.monotonic()
         reconstruction_dir = job_dir / "reconstruction"
         frames_dir = extraction_dir / "frames"
@@ -155,6 +155,7 @@ def run_pipeline(
             max_image_size=max_image_size,
             gaussian_splatting=gaussian_splatting,
             gs_max_iterations=gs_max_iterations,
+            progress_callback=lambda step, pct, msg: _update_progress(step, pct, msg),
         )
         reconstruction_duration = round(time.monotonic() - stage_start, 2)
         logger.info(
@@ -165,7 +166,6 @@ def run_pipeline(
             num_registered=reconstruction_result.num_registered,
             num_points3d=reconstruction_result.num_points3d,
         )
-        _update_progress("reconstruction", 100, "3D 복원 완료")
 
         # PLY 파일 경로 검증
         ply_path = reconstruction_dir / "points.ply"
