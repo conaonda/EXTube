@@ -124,7 +124,8 @@ npm run dev      # Vite 개발 서버 (localhost:5173)
 
 프론트엔드 테스트는 별도로 실행합니다:
 ```bash
-cd src/viewer && npm test
+cd src/viewer && npm test          # 단위 테스트 (vitest)
+cd src/viewer && npm run test:e2e  # E2E 테스트 (Playwright)
 ```
 
 ### Docker 개발 환경
