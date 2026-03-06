@@ -1,5 +1,5 @@
-import { render, screen } from '@testing-library/react'
-import { describe, expect, it } from 'vitest'
+import { fireEvent, render, screen } from '@testing-library/react'
+import { describe, expect, it, vi } from 'vitest'
 import type { Job } from '../../api'
 import JobStatus from '../JobStatus'
 
@@ -80,5 +80,67 @@ describe('JobStatus', () => {
       />,
     )
     expect(container.textContent).not.toContain('50%')
+  })
+
+  it('renders cancelled status', () => {
+    render(<JobStatus job={{ ...baseJob, status: 'cancelled' }} />)
+    expect(screen.getByText('취소됨')).toBeInTheDocument()
+  })
+
+  it('renders retrying status', () => {
+    render(<JobStatus job={{ ...baseJob, status: 'retrying' }} />)
+    expect(screen.getByText('재시도 중...')).toBeInTheDocument()
+  })
+
+  it('shows cancel button for pending status', () => {
+    const onCancel = vi.fn()
+    render(<JobStatus job={{ ...baseJob, status: 'pending' }} onCancel={onCancel} />)
+    const btn = screen.getByTestId('job-cancel')
+    expect(btn).toBeInTheDocument()
+    fireEvent.click(btn)
+    expect(onCancel).toHaveBeenCalledOnce()
+  })
+
+  it('shows cancel button for processing status', () => {
+    const onCancel = vi.fn()
+    render(<JobStatus job={{ ...baseJob, status: 'processing' }} onCancel={onCancel} />)
+    expect(screen.getByTestId('job-cancel')).toBeInTheDocument()
+  })
+
+  it('shows cancel button for retrying status', () => {
+    const onCancel = vi.fn()
+    render(<JobStatus job={{ ...baseJob, status: 'retrying' }} onCancel={onCancel} />)
+    expect(screen.getByTestId('job-cancel')).toBeInTheDocument()
+  })
+
+  it('does not show cancel button for completed status', () => {
+    const onCancel = vi.fn()
+    render(<JobStatus job={{ ...baseJob, status: 'completed' }} onCancel={onCancel} />)
+    expect(screen.queryByTestId('job-cancel')).not.toBeInTheDocument()
+  })
+
+  it('does not show cancel button for failed status', () => {
+    const onCancel = vi.fn()
+    render(<JobStatus job={{ ...baseJob, status: 'failed' }} onCancel={onCancel} />)
+    expect(screen.queryByTestId('job-cancel')).not.toBeInTheDocument()
+  })
+
+  it('does not show cancel button for cancelled status', () => {
+    const onCancel = vi.fn()
+    render(<JobStatus job={{ ...baseJob, status: 'cancelled' }} onCancel={onCancel} />)
+    expect(screen.queryByTestId('job-cancel')).not.toBeInTheDocument()
+  })
+
+  it('does not show cancel button when onCancel is not provided', () => {
+    render(<JobStatus job={{ ...baseJob, status: 'pending' }} />)
+    expect(screen.queryByTestId('job-cancel')).not.toBeInTheDocument()
+  })
+
+  it('disables cancel button when cancelling', () => {
+    const onCancel = vi.fn()
+    render(<JobStatus job={{ ...baseJob, status: 'processing' }} onCancel={onCancel} cancelling />)
+    const btn = screen.getByTestId('job-cancel')
+    expect(btn).toBeDisabled()
+    expect(btn).toHaveTextContent('취소 중...')
   })
 })
