@@ -63,7 +63,7 @@ class TestHealthEndpoints:
         resp = requests.get(f"{api_url}/health", timeout=5)
         assert resp.status_code == 200
         data = resp.json()
-        assert data["status"] == "healthy"
+        assert data["status"] == "ok"
 
     def test_health_ready(self, api_url):
         """Redis 연결을 포함한 준비 상태를 확인한다."""
@@ -192,7 +192,9 @@ class TestSecurityIntegration:
             if resp.status_code == 429:
                 break
         else:
-            pytest.skip("rate limit에 도달하지 않음 (테스트 환경 설정에 따라 다를 수 있음)")
+            pytest.skip(
+                "rate limit에 도달하지 않음 (테스트 환경 설정에 따라 다를 수 있음)"
+            )
 
     def test_login_lockout(self, api_url):
         """반복적인 로그인 실패 시 잠금이 적용된다."""
