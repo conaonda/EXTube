@@ -22,6 +22,7 @@ _ALLOWED_UPDATE_FIELDS = {
     "potree_dir",
     "progress",
     "retry_count",
+    "params",
 }
 
 
@@ -189,6 +190,7 @@ class JobStore:
             "potree_dir",
             "user_id",
             "retry_count",
+            "params",
         ):
             if col not in columns:
                 self._conn.execute(f"ALTER TABLE jobs ADD COLUMN {col} TEXT")
@@ -294,6 +296,8 @@ class JobStore:
             fields["result"] = json.dumps(fields["result"])
         if "progress" in fields and fields["progress"] is not None:
             fields["progress"] = json.dumps(fields["progress"])
+        if "params" in fields and fields["params"] is not None:
+            fields["params"] = json.dumps(fields["params"])
         sets = ", ".join(f"{k} = ?" for k in fields)
         vals = list(fields.values()) + [job_id]
         with self._lock:
@@ -398,5 +402,9 @@ class JobStore:
             d["result"] = json.loads(d["result"])
         if isinstance(d.get("progress"), str):
             d["progress"] = json.loads(d["progress"])
+        if isinstance(d.get("params"), str):
+            d["params"] = json.loads(d["params"])
+        if d.get("retry_count") is not None:
+            d["retry_count"] = int(d["retry_count"])
         d.pop("created_at", None)
         return d
