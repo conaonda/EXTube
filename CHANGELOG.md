@@ -10,6 +10,28 @@
 
 ---
 
+## [0.45.0] - 2026-03-07
+
+### Sprint 26
+
+### Added
+- **feat(api):** 파이프라인 단계별 진행률 WebSocket 알림 개선 (#248, PR #253)
+  - `progress_callback` 파라미터로 5단계 세분화 진행률 실시간 WebSocket 전송
+  - 프론트엔드 프로그레스 바 + 5단계 인디케이터 UI
+- **feat(viewer):** GitHub Pages 온라인 데모 자동 배포 설정 (#227, PR #245)
+  - `deploy-pages.yml` 워크플로우 추가
+- **test(viewer):** 갤러리 페이지 Playwright E2E 테스트 추가 (#247, PR #255)
+  - 갤러리 렌더링 / 뷰어 전환 / 에러 UI 12케이스
+
+### Fixed
+- **fix(ci):** backend job에 `pull-requests: write` 권한 추가 (#257, PR #261)
+  - `orgoro/coverage` 액션의 PR 코멘트 권한 오류 해결
+
+### Documentation
+- **chore(docs):** CHANGELOG.md에 v0.42.0~v0.44.0 릴리스 내역 추가 (#259, PR #262)
+
+---
+
 ## [0.44.0] - 2026-03-06
 
 ### Sprint 25
@@ -354,7 +376,8 @@
   - Docker 개발 환경 (Dockerfile + docker-compose.yml)
   - GitHub Actions CI 워크플로우
 
-[Unreleased]: https://github.com/conaonda/EXTube/compare/v0.44.0...HEAD
+[Unreleased]: https://github.com/conaonda/EXTube/compare/v0.45.0...HEAD
+[0.45.0]: https://github.com/conaonda/EXTube/compare/v0.44.0...v0.45.0
 [0.44.0]: https://github.com/conaonda/EXTube/compare/v0.43.0...v0.44.0
 [0.43.0]: https://github.com/conaonda/EXTube/compare/v0.42.0...v0.43.0
 [0.42.0]: https://github.com/conaonda/EXTube/compare/v0.41.0...v0.42.0
