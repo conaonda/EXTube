@@ -230,7 +230,9 @@ class TestReconstruct:
         assert "reconstruction" in stages_called
         assert "export" in stages_called
         # feature_matching 0%, 50%, 100% 호출 확인
-        fm_calls = [(pct, msg) for step, pct, msg in calls if step == "feature_matching"]
+        fm_calls = [
+            (pct, msg) for step, pct, msg in calls if step == "feature_matching"
+        ]
         assert fm_calls[0][0] == 0
         assert fm_calls[-1][0] == 100
 
