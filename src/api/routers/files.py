@@ -33,7 +33,8 @@ class JobFilesResponse(BaseModel):
 
 
 @router.get(
-    "/jobs/{job_id}/result", summary="복원 결과 PLY 다운로드",
+    "/jobs/{job_id}/result",
+    summary="복원 결과 PLY 다운로드",
 )
 def get_job_result(
     job_id: str,
@@ -51,19 +52,22 @@ def get_job_result(
     ply_path = job.get("ply_path")
     if not ply_path:
         raise HTTPException(
-            status_code=404, detail="결과 파일을 찾을 수 없습니다",
+            status_code=404,
+            detail="결과 파일을 찾을 수 없습니다",
         )
 
     ply_resolved = Path(ply_path).resolve()
     base_resolved = dependencies.get_output_base_dir().resolve()
     if not ply_resolved.is_relative_to(base_resolved):
         raise HTTPException(
-            status_code=400, detail="잘못된 파일 경로입니다",
+            status_code=400,
+            detail="잘못된 파일 경로입니다",
         )
 
     if not ply_resolved.exists():
         raise HTTPException(
-            status_code=404, detail="결과 파일을 찾을 수 없습니다",
+            status_code=404,
+            detail="결과 파일을 찾을 수 없습니다",
         )
 
     return FileResponse(
@@ -101,7 +105,8 @@ def get_splat_file(
     base_resolved = dependencies.get_output_base_dir().resolve()
     if not splat_resolved.is_relative_to(base_resolved):
         raise HTTPException(
-            status_code=400, detail="잘못된 파일 경로입니다",
+            status_code=400,
+            detail="잘못된 파일 경로입니다",
         )
 
     if not splat_resolved.exists():
@@ -146,18 +151,21 @@ def get_potree_file(
     potree_resolved = Path(potree_dir).resolve()
     if not potree_resolved.is_relative_to(base_resolved):
         raise HTTPException(
-            status_code=400, detail="잘못된 파일 경로입니다",
+            status_code=400,
+            detail="잘못된 파일 경로입니다",
         )
 
     target = (potree_resolved / file_path).resolve()
     if not target.is_relative_to(potree_resolved):
         raise HTTPException(
-            status_code=400, detail="잘못된 파일 경로입니다",
+            status_code=400,
+            detail="잘못된 파일 경로입니다",
         )
 
     if not target.exists():
         raise HTTPException(
-            status_code=404, detail="파일을 찾을 수 없습니다",
+            status_code=404,
+            detail="파일을 찾을 수 없습니다",
         )
 
     content_types = {
@@ -167,7 +175,8 @@ def get_potree_file(
         ".laz": "application/octet-stream",
     }
     media_type = content_types.get(
-        target.suffix.lower(), "application/octet-stream",
+        target.suffix.lower(),
+        "application/octet-stream",
     )
     return FileResponse(path=str(target), media_type=media_type)
 
@@ -194,7 +203,8 @@ def list_job_files(
         job_dir = validate_job_path(job_id)
     except ValueError:
         raise HTTPException(
-            status_code=404, detail="작업을 찾을 수 없습니다",
+            status_code=404,
+            detail="작업을 찾을 수 없습니다",
         )
 
     result_dir = job_dir / "reconstruction"
@@ -233,7 +243,8 @@ def download_job_file(
         job_dir = validate_job_path(job_id)
     except ValueError:
         raise HTTPException(
-            status_code=404, detail="작업을 찾을 수 없습니다",
+            status_code=404,
+            detail="작업을 찾을 수 없습니다",
         )
 
     result_dir = job_dir / "reconstruction"
@@ -242,12 +253,14 @@ def download_job_file(
 
     if not target.is_relative_to(base_resolved):
         raise HTTPException(
-            status_code=400, detail="잘못된 파일 경로입니다",
+            status_code=400,
+            detail="잘못된 파일 경로입니다",
         )
 
     if not target.is_file():
         raise HTTPException(
-            status_code=404, detail="파일을 찾을 수 없습니다",
+            status_code=404,
+            detail="파일을 찾을 수 없습니다",
         )
 
     return FileResponse(

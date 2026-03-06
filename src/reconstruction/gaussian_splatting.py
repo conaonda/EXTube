@@ -238,7 +238,9 @@ def train_gaussian_splatting(
     # 동적 타임아웃 계산
     if timeout is None:
         timeout = compute_dynamic_timeout(vram_gb, iterations)
-        logger.info("동적 타임아웃: %d초 (VRAM=%.1fGB, iters=%d)", timeout, vram_gb, iterations)
+        logger.info(
+            "동적 타임아웃: %d초 (VRAM=%.1fGB, iters=%d)", timeout, vram_gb, iterations
+        )
 
     output_dir.mkdir(parents=True, exist_ok=True)
 

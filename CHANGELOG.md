@@ -8,6 +8,14 @@
 
 ## [Unreleased]
 
+### Added
+- **feat(viewer):** 사전 복원 샘플 갤러리 페이지 구현 (#239, PR #240)
+  - `/gallery` 라우트 — `ProtectedRoute` 밖에 배치 (로그인 불필요)
+  - `GalleryPage` 컴포넌트 — 샘플 카드 그리드 + 인라인 3D 뷰어 전환
+  - `sampleGallery.ts` — `SampleItem` 인터페이스 및 3개 샘플 데이터 설정 (PLY, Splat)
+  - `Gallery.css` — 반응형 그리드 레이아웃 (640px 이하 단일 컬럼)
+  - Layout 네비게이션에 "갤러리" 링크 추가
+  - GalleryPage 단위 테스트 8개 추가 (vitest)
 ---
 
 ## [0.41.0] - 2026-03-07

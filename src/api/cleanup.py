@@ -110,9 +110,7 @@ def run_storage_cleanup() -> dict[str, int]:
         intermediate_cleaned = cleanup_intermediate_files(
             job_store, settings.output_base_dir
         )
-        results_deleted = cleanup_expired_results(
-            job_store, settings.output_base_dir
-        )
+        results_deleted = cleanup_expired_results(job_store, settings.output_base_dir)
 
         summary = {
             "intermediate_cleaned": intermediate_cleaned,

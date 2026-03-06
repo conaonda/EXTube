@@ -246,9 +246,7 @@ class TestReconstructWithGaussianSplatting:
     @patch("src.reconstruction.gaussian_splatting.subprocess.run")
     @patch("src.reconstruction.reconstruction._parse_reconstruction_stats")
     @patch("src.reconstruction.reconstruction._run_colmap")
-    def test_gs_enabled(
-        self, mock_colmap, mock_stats, mock_gs_subprocess, tmp_path
-    ):
+    def test_gs_enabled(self, mock_colmap, mock_stats, mock_gs_subprocess, tmp_path):
         """gaussian_splatting=True일 때 GS 학습이 실행되는지 확인."""
         image_dir = tmp_path / "images"
         image_dir.mkdir()
@@ -358,9 +356,7 @@ class TestOomDetection:
             nonlocal call_count
             call_count += 1
             if call_count == 1:
-                return MagicMock(
-                    returncode=1, stdout="", stderr="CUDA out of memory"
-                )
+                return MagicMock(returncode=1, stdout="", stderr="CUDA out of memory")
             output_dir.mkdir(parents=True, exist_ok=True)
             return MagicMock(returncode=0, stdout="", stderr="")
 
@@ -406,9 +402,7 @@ class TestOomDetection:
             nonlocal call_count
             call_count += 1
             if call_count == 1:
-                return MagicMock(
-                    returncode=1, stdout="", stderr="OutOfMemoryError"
-                )
+                return MagicMock(returncode=1, stdout="", stderr="OutOfMemoryError")
             output_dir.mkdir(parents=True, exist_ok=True)
             return MagicMock(returncode=0, stdout="", stderr="")
 
