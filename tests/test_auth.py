@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 from fastapi.testclient import TestClient
-from src.api.auth import _login_attempts
+from src.api.auth import reset_login_attempts
 from src.api.main import _job_store, app
 from src.api.rate_limit import RateLimitMiddleware
 
@@ -26,7 +26,7 @@ def _reset_rate_limiter():
 def _clear_db():
     """각 테스트 전후로 DB를 초기화한다."""
     _reset_rate_limiter()
-    _login_attempts.clear()
+    reset_login_attempts()
     _job_store._conn.execute("DELETE FROM jobs")
     _job_store._conn.execute("DELETE FROM users")
     _job_store._conn.execute("DELETE FROM refresh_tokens")

@@ -10,6 +10,7 @@ export function createMockJwt(payload: Record<string, unknown>): string {
     exp: Math.floor(Date.now() / 1000) + 3600,
     ...payload,
   })
+  // NOTE: 테스트 전용 fake signature. 실제 서명 검증 없이 프론트엔드 인증 상태만 시뮬레이션.
   return `${header}.${body}.fake-signature`
 }
 

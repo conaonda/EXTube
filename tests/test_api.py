@@ -5,12 +5,12 @@ from __future__ import annotations
 import json
 from unittest.mock import patch
 
-from src.downloader import VideoMetadata
-
 import pytest
 from fastapi.testclient import TestClient
-from src.api.main import JobStatus, _job_store, app
+from src.api.main import _job_store, app
 from src.api.rate_limit import RateLimitMiddleware
+from src.api.routers.jobs import JobStatus
+from src.downloader import VideoMetadata
 
 client = TestClient(app)
 
@@ -469,15 +469,15 @@ class TestDeleteJob:
         assert resp.status_code == 204
         assert _job_store.get("aabbccddeed3") is None
 
-    @patch("src.api.dependencies.OUTPUT_BASE_DIR")
+    @patch("src.api.dependencies.get_output_base_dir")
     def test_delete_cleans_disk(self, mock_base_dir, tmp_path):
         """삭제 시 디스크 파일도 정리한다."""
         headers = _get_auth_headers()
-        mock_base_dir.resolve.return_value = tmp_path.resolve()
+        mock_base_dir.return_value = tmp_path
         job_dir = tmp_path / "aabbccddeed4"
         job_dir.mkdir(parents=True)
         (job_dir / "test.txt").write_text("data")
-        mock_base_dir.__truediv__ = lambda self, x: tmp_path / x
+
 
         _insert_job("aabbccddeed4", status=JobStatus.completed)
         resp = client.delete("/api/jobs/aabbccddeed4", headers=headers)
@@ -609,11 +609,11 @@ class TestGetJobResult:
         resp = client.get("/api/jobs/aabbccddeef3/result", headers=headers)
         assert resp.status_code == 404
 
-    @patch("src.api.dependencies.OUTPUT_BASE_DIR")
+    @patch("src.api.dependencies.get_output_base_dir")
     def test_download_ply(self, mock_base_dir, tmp_path):
         """PLY 파일을 다운로드한다."""
         headers = _get_auth_headers()
-        mock_base_dir.resolve.return_value = tmp_path.resolve()
+        mock_base_dir.return_value = tmp_path
         ply_file = tmp_path / "points.ply"
         ply_file.write_text("ply content")
 
@@ -650,11 +650,11 @@ class TestGetSplatFile:
         resp = client.get("/api/jobs/aabbccddees2/splat", headers=headers)
         assert resp.status_code == 404
 
-    @patch("src.api.dependencies.OUTPUT_BASE_DIR")
+    @patch("src.api.dependencies.get_output_base_dir")
     def test_serve_splat_file(self, mock_base_dir, tmp_path):
         """GS splat 파일을 서빙한다."""
         headers = _get_auth_headers()
-        mock_base_dir.resolve.return_value = tmp_path.resolve()
+        mock_base_dir.return_value = tmp_path
         splat_file = tmp_path / "point_cloud.ply"
         splat_file.write_bytes(b"splat binary data")
 
@@ -747,11 +747,11 @@ class TestGetPotreeFile:
         resp = client.get(url, headers=headers)
         assert resp.status_code == 404
 
-    @patch("src.api.dependencies.OUTPUT_BASE_DIR")
+    @patch("src.api.dependencies.get_output_base_dir")
     def test_serve_potree_file(self, mock_base_dir, tmp_path):
         """Potree 파일을 서빙한다."""
         headers = _get_auth_headers()
-        mock_base_dir.resolve.return_value = tmp_path.resolve()
+        mock_base_dir.return_value = tmp_path
         potree_dir = tmp_path / "potree"
         potree_dir.mkdir()
         meta = potree_dir / "metadata.json"
@@ -764,11 +764,11 @@ class TestGetPotreeFile:
         assert resp.status_code == 200
         assert resp.json() == {"version": "2.0"}
 
-    @patch("src.api.dependencies.OUTPUT_BASE_DIR")
+    @patch("src.api.dependencies.get_output_base_dir")
     def test_path_traversal_blocked(self, mock_base_dir, tmp_path):
         """경로 순회 공격이 차단된다."""
         headers = _get_auth_headers()
-        mock_base_dir.resolve.return_value = tmp_path.resolve()
+        mock_base_dir.return_value = tmp_path
         potree_dir = tmp_path / "potree"
         potree_dir.mkdir()
 
@@ -859,18 +859,18 @@ class TestListJobFiles:
         resp = client.get("/api/jobs/aabbccddeeb1/files", headers=headers)
         assert resp.status_code == 400
 
-    @patch("src.api.dependencies.OUTPUT_BASE_DIR")
+    @patch("src.api.dependencies.get_output_base_dir")
     def test_list_files(self, mock_base_dir, tmp_path):
         """결과 파일 목록을 반환한다."""
         headers = _get_auth_headers()
-        mock_base_dir.resolve.return_value = tmp_path.resolve()
+        mock_base_dir.return_value = tmp_path
         job_dir = tmp_path / "aabbccddeeb2"
         recon_dir = job_dir / "reconstruction"
         recon_dir.mkdir(parents=True)
         (recon_dir / "points.ply").write_text("ply data")
         (recon_dir / "cameras.txt").write_text("camera data")
 
-        mock_base_dir.__truediv__ = lambda self, x: tmp_path / x
+
 
         _insert_job("aabbccddeeb2", status=JobStatus.completed)
         resp = client.get("/api/jobs/aabbccddeeb2/files", headers=headers)
@@ -881,14 +881,14 @@ class TestListJobFiles:
         assert "points.ply" in names
         assert "cameras.txt" in names
 
-    @patch("src.api.dependencies.OUTPUT_BASE_DIR")
+    @patch("src.api.dependencies.get_output_base_dir")
     def test_no_reconstruction_dir(self, mock_base_dir, tmp_path):
         """reconstruction 디렉토리가 없으면 빈 목록을 반환한다."""
         headers = _get_auth_headers()
-        mock_base_dir.resolve.return_value = tmp_path.resolve()
+        mock_base_dir.return_value = tmp_path
         job_dir = tmp_path / "aabbccddeeb3"
         job_dir.mkdir(parents=True)
-        mock_base_dir.__truediv__ = lambda self, x: tmp_path / x
+
 
         _insert_job("aabbccddeeb3", status=JobStatus.completed)
         resp = client.get("/api/jobs/aabbccddeeb3/files", headers=headers)
@@ -915,16 +915,16 @@ class TestDownloadJobFile:
         )
         assert resp.status_code == 400
 
-    @patch("src.api.dependencies.OUTPUT_BASE_DIR")
+    @patch("src.api.dependencies.get_output_base_dir")
     def test_download_file(self, mock_base_dir, tmp_path):
         """결과 파일을 다운로드한다."""
         headers = _get_auth_headers()
-        mock_base_dir.resolve.return_value = tmp_path.resolve()
+        mock_base_dir.return_value = tmp_path
         job_dir = tmp_path / "aabbccddeec2"
         recon_dir = job_dir / "reconstruction"
         recon_dir.mkdir(parents=True)
         (recon_dir / "points.ply").write_bytes(b"ply binary data")
-        mock_base_dir.__truediv__ = lambda self, x: tmp_path / x
+
 
         _insert_job("aabbccddeec2", status=JobStatus.completed)
         resp = client.get(
@@ -935,15 +935,15 @@ class TestDownloadJobFile:
         assert resp.content == b"ply binary data"
         assert "attachment" in resp.headers.get("content-disposition", "")
 
-    @patch("src.api.dependencies.OUTPUT_BASE_DIR")
+    @patch("src.api.dependencies.get_output_base_dir")
     def test_file_not_exists(self, mock_base_dir, tmp_path):
         """존재하지 않는 파일은 404를 반환한다."""
         headers = _get_auth_headers()
-        mock_base_dir.resolve.return_value = tmp_path.resolve()
+        mock_base_dir.return_value = tmp_path
         job_dir = tmp_path / "aabbccddeec3"
         recon_dir = job_dir / "reconstruction"
         recon_dir.mkdir(parents=True)
-        mock_base_dir.__truediv__ = lambda self, x: tmp_path / x
+
 
         _insert_job("aabbccddeec3", status=JobStatus.completed)
         resp = client.get(
@@ -952,15 +952,15 @@ class TestDownloadJobFile:
         )
         assert resp.status_code == 404
 
-    @patch("src.api.dependencies.OUTPUT_BASE_DIR")
+    @patch("src.api.dependencies.get_output_base_dir")
     def test_path_traversal_blocked(self, mock_base_dir, tmp_path):
         """경로 순회 공격이 차단된다."""
         headers = _get_auth_headers()
-        mock_base_dir.resolve.return_value = tmp_path.resolve()
+        mock_base_dir.return_value = tmp_path
         job_dir = tmp_path / "aabbccddeec4"
         recon_dir = job_dir / "reconstruction"
         recon_dir.mkdir(parents=True)
-        mock_base_dir.__truediv__ = lambda self, x: tmp_path / x
+
 
         _insert_job("aabbccddeec4", status=JobStatus.completed)
         resp = client.get(
@@ -969,17 +969,17 @@ class TestDownloadJobFile:
         )
         assert resp.status_code in (400, 404)
 
-    @patch("src.api.dependencies.OUTPUT_BASE_DIR")
+    @patch("src.api.dependencies.get_output_base_dir")
     def test_download_nested_file(self, mock_base_dir, tmp_path):
         """하위 디렉토리의 파일도 다운로드할 수 있다."""
         headers = _get_auth_headers()
-        mock_base_dir.resolve.return_value = tmp_path.resolve()
+        mock_base_dir.return_value = tmp_path
         job_dir = tmp_path / "aabbccddeec5"
         recon_dir = job_dir / "reconstruction"
         sub_dir = recon_dir / "sparse"
         sub_dir.mkdir(parents=True)
         (sub_dir / "cameras.bin").write_bytes(b"camera binary")
-        mock_base_dir.__truediv__ = lambda self, x: tmp_path / x
+
 
         _insert_job("aabbccddeec5", status=JobStatus.completed)
         resp = client.get(

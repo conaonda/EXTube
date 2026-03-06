@@ -34,6 +34,7 @@ dev = [
     "pytest-cov>=5.0",
     "ruff>=0.3",
     "fakeredis>=2.21",
+    "requests>=2.31",
 ]
 
 [tool.hatch.build.targets.wheel]
@@ -52,4 +53,8 @@ testpaths = ["tests"]
 pythonpath = ["."]
 markers = [
     "e2e: end-to-end pipeline integration tests",
+    "integration: Docker Compose based integration tests",
 ]
+
+# 기본 실행에서 integration 테스트 제외 (별도 환경 필요)
+addopts = "--ignore=tests/integration"
