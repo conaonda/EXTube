@@ -130,6 +130,27 @@
   margin-left: 0.5rem;
 }
 
+.job-cancel-btn {
+  margin-left: 0.5rem;
+  padding: 0.25rem 0.5rem;
+  background: #dc2626;
+  color: #fff;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 0.75rem;
+  font-weight: 600;
+}
+
+.job-cancel-btn:hover {
+  background: #b91c1c;
+}
+
+.job-cancel-btn:focus-visible {
+  outline: 2px solid #991b1b;
+  outline-offset: 2px;
+}
+
 @media (max-width: 480px) {
   .job-status-progress,
   .job-status-error,

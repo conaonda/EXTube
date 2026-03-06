@@ -6,6 +6,8 @@ const STATUS_LABELS: Record<string, string> = {
   processing: '처리 중...',
   completed: '완료',
   failed: '실패',
+  cancelled: '취소됨',
+  retrying: '재시도 중...',
 }
 
 const STAGE_LABELS: Record<string, string> = {
@@ -14,12 +16,15 @@ const STAGE_LABELS: Record<string, string> = {
   reconstruction: '3D 복원',
 }
 
+const CANCELLABLE_STATUSES = new Set(['pending', 'processing', 'retrying'])
+
 interface JobStatusProps {
   job: Job
   progress?: JobProgress | null
+  onCancel?: () => void
 }
 
-export default function JobStatus({ job, progress }: JobStatusProps) {
+export default function JobStatus({ job, progress, onCancel }: JobStatusProps) {
   const label = STATUS_LABELS[job.status] ?? job.status
 
   return (
@@ -35,6 +40,11 @@ export default function JobStatus({ job, progress }: JobStatusProps) {
           {STAGE_LABELS[progress.stage] ?? progress.stage} {progress.percent}%
           {progress.message && ` — ${progress.message}`}
         </span>
+      )}
+      {onCancel && CANCELLABLE_STATUSES.has(job.status) && (
+        <button className="job-cancel-btn" onClick={onCancel} type="button">
+          취소
+        </button>
       )}
       {job.error && (
         <span className="job-status-error">

@@ -1,5 +1,6 @@
 import { render, screen } from '@testing-library/react'
-import { describe, expect, it } from 'vitest'
+import userEvent from '@testing-library/user-event'
+import { describe, expect, it, vi } from 'vitest'
 import type { Job } from '../../api'
 import JobStatus from '../JobStatus'
 
@@ -70,6 +71,42 @@ describe('JobStatus', () => {
     expect(screen.getByText(/다운로드/)).toBeInTheDocument()
     expect(screen.getByText(/50%/)).toBeInTheDocument()
     expect(screen.getByText(/다운로드 중/)).toBeInTheDocument()
+  })
+
+  it('shows cancel button for pending job when onCancel is provided', () => {
+    const onCancel = vi.fn()
+    render(<JobStatus job={{ ...baseJob, status: 'pending' }} onCancel={onCancel} />)
+    expect(screen.getByText('취소')).toBeInTheDocument()
+  })
+
+  it('shows cancel button for processing job when onCancel is provided', () => {
+    const onCancel = vi.fn()
+    render(<JobStatus job={{ ...baseJob, status: 'processing' }} onCancel={onCancel} />)
+    expect(screen.getByText('취소')).toBeInTheDocument()
+  })
+
+  it('shows cancel button for retrying job when onCancel is provided', () => {
+    const onCancel = vi.fn()
+    render(<JobStatus job={{ ...baseJob, status: 'retrying' }} onCancel={onCancel} />)
+    expect(screen.getByText('취소')).toBeInTheDocument()
+  })
+
+  it('does not show cancel button for completed job', () => {
+    const onCancel = vi.fn()
+    render(<JobStatus job={{ ...baseJob, status: 'completed' }} onCancel={onCancel} />)
+    expect(screen.queryByText('취소')).not.toBeInTheDocument()
+  })
+
+  it('does not show cancel button when onCancel is not provided', () => {
+    render(<JobStatus job={{ ...baseJob, status: 'pending' }} />)
+    expect(screen.queryByText('취소')).not.toBeInTheDocument()
+  })
+
+  it('calls onCancel when cancel button is clicked', async () => {
+    const onCancel = vi.fn()
+    render(<JobStatus job={{ ...baseJob, status: 'processing' }} onCancel={onCancel} />)
+    await userEvent.click(screen.getByText('취소'))
+    expect(onCancel).toHaveBeenCalledOnce()
   })
 
   it('does not show progress when status is not processing', () => {
