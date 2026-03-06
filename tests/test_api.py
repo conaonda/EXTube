@@ -506,7 +506,7 @@ class TestCancelJob:
     def test_cancel_pending_job(self, mock_redis):
         """대기 중인 작업을 취소한다."""
         headers = _get_auth_headers()
-        _mock_conn = mock_redis.return_value  # noqa: F841
+        _ = mock_redis.return_value
         _insert_job("aabbccddeca1", status=JobStatus.pending)
         resp = client.post("/api/jobs/aabbccddeca1/cancel", headers=headers)
         assert resp.status_code == 200
@@ -518,7 +518,7 @@ class TestCancelJob:
     def test_cancel_processing_job(self, mock_redis):
         """처리 중인 작업을 취소한다."""
         headers = _get_auth_headers()
-        _mock_conn = mock_redis.return_value  # noqa: F841
+        _ = mock_redis.return_value
         _insert_job("aabbccddeca2", status=JobStatus.processing)
         resp = client.post("/api/jobs/aabbccddeca2/cancel", headers=headers)
         assert resp.status_code == 200
@@ -528,7 +528,7 @@ class TestCancelJob:
     def test_cancel_retrying_job(self, mock_redis):
         """재시도 중인 작업을 취소한다."""
         headers = _get_auth_headers()
-        _mock_conn = mock_redis.return_value  # noqa: F841
+        _ = mock_redis.return_value
         _insert_job("aabbccddeca3", status=JobStatus.retrying)
         resp = client.post("/api/jobs/aabbccddeca3/cancel", headers=headers)
         assert resp.status_code == 200
@@ -583,7 +583,7 @@ class TestCancelJob:
     ):
         """취소된 Job은 동시 실행 제한에 포함되지 않는다."""
         headers = _get_auth_headers()
-        _mock_conn = mock_redis.return_value  # noqa: F841
+        _ = mock_redis.return_value
         url = "https://www.youtube.com/watch?v=dQw4w9WgXcQ"
         # 2개 생성
         resp1 = client.post("/api/jobs", json={"url": url}, headers=headers)

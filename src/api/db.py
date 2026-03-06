@@ -271,7 +271,7 @@ class JobStore:
 
             query_params = params + [limit, offset]
             rows = self._conn.execute(
-                f"SELECT * FROM jobs{where} ORDER BY {sort_by} {direction}"  # noqa: S608, E501
+                f"SELECT * FROM jobs{where} ORDER BY {sort_by} {direction}"  # noqa: S608
                 " LIMIT ? OFFSET ?",
                 query_params,
             ).fetchall()

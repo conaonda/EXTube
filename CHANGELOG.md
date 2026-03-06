@@ -10,61 +10,45 @@
 
 ---
 
-## [0.44.0] - 2026-03-07
+## [0.44.0] - 2026-03-06
 
 ### Sprint 25
 
 ### Added
-- **feat(api):** 파이프라인 단계별 진행률 WebSocket 알림 개선 (#248, PR #253)
-  - `reconstruct()` 함수에 `progress_callback: ProgressCallback | None` 파라미터 추가
-  - 파이프라인 5단계 세분화: `download` → `extraction` → `feature_matching` → `reconstruction` → `export`
-  - 각 단계 진입/완료 시 WebSocket으로 `{stage, progress_pct}` 실시간 전송
-  - `ProgressCallback = Callable[[str, int, str], None]` 타입 별칭 정의
-  - 프론트엔드 `JobStatus` 컴포넌트에 프로그레스 바 + 5단계 인디케이터 UI 추가
-- **test(viewer):** 갤러리 페이지 Playwright E2E 테스트 추가 (#247, PR #255)
-  - 갤러리 카드 렌더링, 뷰어 전환, 미인증 접근, 모바일 반응형 4건
+- **feat(api):** 파이프라인 단계별 진행률 WebSocket 알림 개선 (#248)
+  - `progress_callback` 파라미터, 5단계 세분화, 실시간 WebSocket 전송
+  - 프론트엔드 프로그레스 바 + 5단계 인디케이터 UI
+- **test(viewer):** 갤러리 Playwright E2E 테스트 4건 (#247)
+
+### Known Issues
+- CI `orgoro/coverage` 액션 권한 오류 (#257)
 
 ---
 
-## [0.43.0] - 2026-03-07
+## [0.43.0] - 2026-03-06
 
 ### Sprint 24 (추가)
 
 ### Added
-- **docs(viewer):** `Viewer3DErrorBoundary` JSDoc 추가 — Props, 동작, 사용 예제 (#243)
-- **docs(viewer):** `GalleryPage` JSDoc 추가 — 라우트, 동작, 파일 배치 규칙 (#243)
-- **docs:** README 샘플 갤러리 섹션에 온라인 데모 URL 추가 (#227)
+- **docs(viewer):** `Viewer3DErrorBoundary` / `GalleryPage` JSDoc 추가 (#243)
+- **docs(viewer):** README 온라인 데모 URL 추가 (#227)
 
 ### Fixed
-- **fix(api):** `src/api/db.py`, `tests/test_api.py` git 충돌 마커 제거 — CI lint 실패 수정 (#251, PR #252)
+- **fix(api):** `src/api/db.py`, `tests/test_api.py` git 충돌 마커 제거 — CI lint 수정 (#251)
 
 ---
 
-## [0.42.0] - 2026-03-07
+## [0.42.0] - 2026-03-06
 
 ### Sprint 24
 
 ### Added
-- **feat(viewer):** 사전 복원 샘플 갤러리 페이지 구현 (#239, PR #240)
-  - `/gallery` 라우트 — `ProtectedRoute` 밖에 배치 (로그인 불필요)
-  - `GalleryPage` 컴포넌트 — 샘플 카드 그리드 + 인라인 3D 뷰어 전환
-  - `sampleGallery.ts` — `SampleItem` 인터페이스 및 3개 샘플 데이터 설정 (PLY, Splat)
-  - `Gallery.css` — 반응형 그리드 레이아웃 (640px 이하 단일 컬럼)
-  - Layout 네비게이션에 "갤러리" 링크 추가
-  - GalleryPage 단위 테스트 8개 추가 (vitest)
-- **feat(viewer):** GitHub Pages 온라인 데모 배포 설정 (#227, PR #245)
-  - `deploy-demo.yml` GitHub Actions 워크플로우 — main push 시 자동 배포
-  - Vite `base` 경로를 `VITE_BASE_PATH` 환경변수로 설정
-  - `BrowserRouter basename` 동적 설정으로 서브 경로 배포 지원
-  - `404.html` 복사로 SPA 라우팅 지원
-  - 배포 URL: `https://conaonda.github.io/EXTube/gallery`
+- **feat(viewer):** 갤러리 페이지 — 사전 복원 샘플 3D 뷰어 갤러리 (#239, #240)
+- **feat(viewer):** 온라인 데모 — GitHub Pages 자동 배포 설정 (#227, #245)
 
 ### Fixed
-- **fix(viewer):** 갤러리 로드 에러 UI 및 샘플 데이터 추가 (#243, PR #244)
-  - `GalleryErrorBoundary` 컴포넌트 — 3D 데이터 로드 실패 시 에러 UI 표시
-  - "다시 시도" / "갤러리로 돌아가기" 버튼 제공
-  - 최소 샘플 PLY 파일(8 vertex cube) `public/samples/street/point_cloud.ply` 추가
-  - 에러 UI 테스트 4건 추가
+- **fix(viewer):** 갤러리 에러 UI — 3D 데이터 로드 실패 시 에러 바운더리 + 샘플 PLY 추가 (#243, #244)
+
 ---
 
 ## [0.41.0] - 2026-03-07
@@ -99,10 +83,6 @@
 
 ### Fixed
 - **fix(ci):** backend lint 에러 및 vitest e2e 수집 문제 해결 (#221, #222, PR #229)
-
----
-
-## [0.40.0] - 2026-03-06
 
 ### Sprint 18
 
@@ -374,7 +354,10 @@
   - Docker 개발 환경 (Dockerfile + docker-compose.yml)
   - GitHub Actions CI 워크플로우
 
-[Unreleased]: https://github.com/conaonda/EXTube/compare/v0.41.0...HEAD
+[Unreleased]: https://github.com/conaonda/EXTube/compare/v0.44.0...HEAD
+[0.44.0]: https://github.com/conaonda/EXTube/compare/v0.43.0...v0.44.0
+[0.43.0]: https://github.com/conaonda/EXTube/compare/v0.42.0...v0.43.0
+[0.42.0]: https://github.com/conaonda/EXTube/compare/v0.41.0...v0.42.0
 [0.41.0]: https://github.com/conaonda/EXTube/compare/v0.40.0...v0.41.0
 [0.40.0]: https://github.com/conaonda/EXTube/compare/v0.39.0...v0.40.0
 [0.39.0]: https://github.com/conaonda/EXTube/compare/v0.38.0...v0.39.0
