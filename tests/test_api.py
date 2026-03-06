@@ -1152,3 +1152,80 @@ class TestVideoValidation:
             headers=headers,
         )
         assert resp.status_code == 201
+
+
+class TestJobParamValidation:
+    """Job 생성 파라미터 유효성 검증 테스트."""
+
+    def test_frame_interval_too_small(self):
+        headers = _get_auth_headers()
+        resp = client.post(
+            "/api/jobs",
+            json={"url": "https://youtu.be/dQw4w9WgXcQ", "frame_interval": 0.01},
+            headers=headers,
+        )
+        assert resp.status_code == 422
+
+    def test_frame_interval_too_large(self):
+        headers = _get_auth_headers()
+        resp = client.post(
+            "/api/jobs",
+            json={"url": "https://youtu.be/dQw4w9WgXcQ", "frame_interval": 500},
+            headers=headers,
+        )
+        assert resp.status_code == 422
+
+    def test_blur_threshold_negative(self):
+        headers = _get_auth_headers()
+        resp = client.post(
+            "/api/jobs",
+            json={"url": "https://youtu.be/dQw4w9WgXcQ", "blur_threshold": -1},
+            headers=headers,
+        )
+        assert resp.status_code == 422
+
+    def test_blur_threshold_too_large(self):
+        headers = _get_auth_headers()
+        resp = client.post(
+            "/api/jobs",
+            json={"url": "https://youtu.be/dQw4w9WgXcQ", "blur_threshold": 501},
+            headers=headers,
+        )
+        assert resp.status_code == 422
+
+    def test_invalid_camera_model(self):
+        headers = _get_auth_headers()
+        resp = client.post(
+            "/api/jobs",
+            json={"url": "https://youtu.be/dQw4w9WgXcQ", "camera_model": "INVALID"},
+            headers=headers,
+        )
+        assert resp.status_code == 422
+        assert "카메라 모델" in resp.text
+
+    def test_valid_camera_model_opencv(self):
+        headers = _get_auth_headers()
+        resp = client.post(
+            "/api/jobs",
+            json={"url": "https://youtu.be/dQw4w9WgXcQ", "camera_model": "OPENCV"},
+            headers=headers,
+        )
+        assert resp.status_code != 422 or "카메라 모델" not in resp.text
+
+    def test_gs_max_iterations_zero(self):
+        headers = _get_auth_headers()
+        resp = client.post(
+            "/api/jobs",
+            json={"url": "https://youtu.be/dQw4w9WgXcQ", "gs_max_iterations": 0},
+            headers=headers,
+        )
+        assert resp.status_code == 422
+
+    def test_gs_max_iterations_too_large(self):
+        headers = _get_auth_headers()
+        resp = client.post(
+            "/api/jobs",
+            json={"url": "https://youtu.be/dQw4w9WgXcQ", "gs_max_iterations": 200000},
+            headers=headers,
+        )
+        assert resp.status_code == 422
