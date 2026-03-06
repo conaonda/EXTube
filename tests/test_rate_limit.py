@@ -14,8 +14,11 @@ from src.downloader import VideoMetadata
 _YT_URL = "https://www.youtube.com/watch?v=dQw4w9WgXcQ"
 
 _MOCK_METADATA = VideoMetadata(
-    duration=120, title="Test Video", video_id="dQw4w9WgXcQ",
-    height=1080, filesize_approx=50 * 1024 * 1024,
+    duration=120,
+    title="Test Video",
+    video_id="dQw4w9WgXcQ",
+    height=1080,
+    filesize_approx=50 * 1024 * 1024,
 )
 
 client = TestClient(app)

@@ -25,6 +25,9 @@ export default function Layout() {
           <Link to="/jobs" style={{ color: '#2563eb', textDecoration: 'none' }}>
             히스토리
           </Link>
+          <Link to="/gallery" style={{ color: '#2563eb', textDecoration: 'none' }}>
+            갤러리
+          </Link>
         </nav>
         {user && (
           <div
