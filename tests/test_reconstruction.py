@@ -328,6 +328,48 @@ class TestReconstruct:
         assert "image_undistortion" not in result.steps_completed
 
 
+    @patch("src.reconstruction.reconstruction.subprocess.run")
+    @patch("src.reconstruction.reconstruction._run_colmap")
+    def test_zero_points3d_raises_error(self, mock_colmap, mock_subprocess, tmp_path):
+        """Sparse reconstruction 후 3D 포인트가 0개이면 RuntimeError (#226)."""
+        image_dir = tmp_path / "images"
+        image_dir.mkdir()
+        for i in range(3):
+            (image_dir / f"frame_{i:06d}.jpg").write_bytes(b"\xff" * 100)
+        workspace = tmp_path / "workspace"
+
+        def side_effect(command, args):
+            if command == "feature_extractor":
+                db = workspace / "database.db"
+                db.parent.mkdir(parents=True, exist_ok=True)
+                db.touch()
+            elif command == "mapper":
+                model_dir = workspace / "sparse" / "0"
+                model_dir.mkdir(parents=True, exist_ok=True)
+                (model_dir / "images.bin").write_bytes(b"\x00" * 512)
+            return MagicMock(returncode=0)
+
+        mock_colmap.side_effect = side_effect
+        mock_subprocess.return_value = MagicMock(
+            returncode=0,
+            stdout="Registered images = 3\nPoints 3D = 0\n",
+        )
+
+        with pytest.raises(RuntimeError, match="3D 포인트가 0개"):
+            reconstruct(image_dir, workspace)
+
+
+class TestRunColmapTimeout:
+    """COLMAP 타임아웃 처리 테스트 (#226)."""
+
+    @patch("src.reconstruction.reconstruction.subprocess.run")
+    def test_timeout_raises_friendly_error(self, mock_run):
+        import subprocess as sp
+        mock_run.side_effect = sp.TimeoutExpired(cmd="colmap", timeout=60)
+        with pytest.raises(RuntimeError, match="시간 초과"):
+            _run_colmap("mapper", ["--arg", "val"], timeout=60)
+
+
 class TestImageUndistorter:
     """image_undistorter 함수 테스트."""
 

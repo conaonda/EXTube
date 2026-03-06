@@ -134,6 +134,17 @@ def run_pipeline(
         )
         _update_progress("extraction", 100, "프레임 추출 완료")
 
+        # 프레임 필터링 후 최소 프레임 수 검증
+        remaining_frames = (
+            extraction_result.total_extracted - extraction_result.total_filtered
+        )
+        if remaining_frames < 2:
+            raise ValueError(
+                f"블러 필터링 후 사용 가능한 프레임이 부족합니다 "
+                f"({remaining_frames}장). 최소 2장이 필요합니다. "
+                f"blur_threshold 값을 낮추거나 frame_interval을 줄여보세요."
+            )
+
         # 3. 3D 복원
         _update_progress("reconstruction", 0, "3D 복원 시작")
         stage_start = time.monotonic()

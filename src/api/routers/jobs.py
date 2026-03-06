@@ -13,7 +13,7 @@ from typing import Any
 import redis
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import JSONResponse, StreamingResponse
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 from rq import Queue
 from rq.command import send_stop_job_command
 from rq.job import Job as RQJob
@@ -48,6 +48,16 @@ class JobStatus(StrEnum):
     cancelled = "cancelled"
 
 
+_ALLOWED_CAMERA_MODELS = frozenset({
+    "SIMPLE_PINHOLE", "PINHOLE",
+    "SIMPLE_RADIAL", "RADIAL",
+    "OPENCV", "OPENCV_FISHEYE",
+    "FULL_OPENCV",
+    "SIMPLE_RADIAL_FISHEYE", "RADIAL_FISHEYE",
+    "THIN_PRISM_FISHEYE",
+})
+
+
 class JobCreate(BaseModel):
     """작업 생성 요청."""
 
@@ -56,24 +66,38 @@ class JobCreate(BaseModel):
         examples=["https://www.youtube.com/watch?v=dQw4w9WgXcQ"],
     )
     max_height: int = Field(1080, description="다운로드 영상의 최대 높이 (px)")
-    frame_interval: float = Field(1.0, description="프레임 추출 간격 (초)")
+    frame_interval: float = Field(
+        1.0, ge=0.1, le=300.0, description="프레임 추출 간격 (초, 0.1~300)"
+    )
     blur_threshold: float = Field(
-        100.0, description="블러 필터링 임계값 (낮을수록 엄격)"
+        100.0, ge=0.0, le=500.0,
+        description="블러 필터링 임계값 (0~500, 낮을수록 엄격)",
     )
     camera_model: str = Field("SIMPLE_RADIAL", description="COLMAP 카메라 모델")
     dense: bool = Field(False, description="Dense reconstruction 수행 여부")
     max_image_size: int = Field(
-        0, description="COLMAP 입력 이미지 최대 크기 (0=제한 없음)"
+        0, ge=0, description="COLMAP 입력 이미지 최대 크기 (0=제한 없음)"
     )
     gaussian_splatting: bool = Field(
         False, description="3D Gaussian Splatting 수행 여부"
     )
     gs_max_iterations: int | None = Field(
-        None, description="Gaussian Splatting 최대 반복 횟수"
+        None, ge=1, le=100_000,
+        description="Gaussian Splatting 최대 반복 횟수 (1~100,000)",
     )
     force_reprocess: bool = Field(
         False, description="기존 완료된 결과가 있어도 강제 재처리"
     )
+
+    @field_validator("camera_model")
+    @classmethod
+    def validate_camera_model(cls, v: str) -> str:
+        if v not in _ALLOWED_CAMERA_MODELS:
+            allowed = ", ".join(sorted(_ALLOWED_CAMERA_MODELS))
+            raise ValueError(
+                f"지원하지 않는 카메라 모델: {v}. 허용: {allowed}"
+            )
+        return v
 
 
 class JobResponse(BaseModel):

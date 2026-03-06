@@ -1152,3 +1152,94 @@ class TestVideoValidation:
             headers=headers,
         )
         assert resp.status_code == 201
+
+
+class TestJobCreateValidation:
+    """JobCreate 파라미터 검증 테스트 (#225)."""
+
+    def test_frame_interval_too_low(self):
+        headers = _get_auth_headers()
+        resp = client.post(
+            "/api/jobs",
+            json={"url": "https://www.youtube.com/watch?v=dQw4w9WgXcQ",
+                   "frame_interval": 0.01},
+            headers=headers,
+        )
+        assert resp.status_code == 422
+
+    def test_frame_interval_too_high(self):
+        headers = _get_auth_headers()
+        resp = client.post(
+            "/api/jobs",
+            json={"url": "https://www.youtube.com/watch?v=dQw4w9WgXcQ",
+                   "frame_interval": 500},
+            headers=headers,
+        )
+        assert resp.status_code == 422
+
+    def test_blur_threshold_negative(self):
+        headers = _get_auth_headers()
+        resp = client.post(
+            "/api/jobs",
+            json={"url": "https://www.youtube.com/watch?v=dQw4w9WgXcQ",
+                   "blur_threshold": -1},
+            headers=headers,
+        )
+        assert resp.status_code == 422
+
+    def test_blur_threshold_too_high(self):
+        headers = _get_auth_headers()
+        resp = client.post(
+            "/api/jobs",
+            json={"url": "https://www.youtube.com/watch?v=dQw4w9WgXcQ",
+                   "blur_threshold": 501},
+            headers=headers,
+        )
+        assert resp.status_code == 422
+
+    def test_invalid_camera_model(self):
+        headers = _get_auth_headers()
+        resp = client.post(
+            "/api/jobs",
+            json={"url": "https://www.youtube.com/watch?v=dQw4w9WgXcQ",
+                   "camera_model": "INVALID_MODEL"},
+            headers=headers,
+        )
+        assert resp.status_code == 422
+
+    def test_gs_max_iterations_zero(self):
+        headers = _get_auth_headers()
+        resp = client.post(
+            "/api/jobs",
+            json={"url": "https://www.youtube.com/watch?v=dQw4w9WgXcQ",
+                   "gs_max_iterations": 0},
+            headers=headers,
+        )
+        assert resp.status_code == 422
+
+    def test_gs_max_iterations_too_high(self):
+        headers = _get_auth_headers()
+        resp = client.post(
+            "/api/jobs",
+            json={"url": "https://www.youtube.com/watch?v=dQw4w9WgXcQ",
+                   "gs_max_iterations": 200_000},
+            headers=headers,
+        )
+        assert resp.status_code == 422
+
+    @patch("src.api.routers.jobs._enqueue_job")
+    @patch("src.api.routers.jobs.fetch_video_metadata", return_value=_MOCK_METADATA)
+    def test_valid_params_accepted(self, mock_meta, mock_run):
+        headers = _get_auth_headers()
+        resp = client.post(
+            "/api/jobs",
+            json={
+                "url": "https://www.youtube.com/watch?v=dQw4w9WgXcQ",
+                "frame_interval": 0.5,
+                "blur_threshold": 200,
+                "camera_model": "PINHOLE",
+                "gs_max_iterations": 30000,
+            },
+            headers=headers,
+        )
+        assert resp.status_code == 201

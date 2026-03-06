@@ -244,10 +244,13 @@ class TestReconstructWithGaussianSplatting:
         assert "gaussian_splatting" not in result.steps_completed
 
     @patch("src.reconstruction.gaussian_splatting.subprocess.run")
-    @patch("src.reconstruction.reconstruction.subprocess.run")
+    @patch(
+        "src.reconstruction.reconstruction._parse_reconstruction_stats",
+        return_value={"num_registered": 5, "num_points3d": 120, "model_dir": None},
+    )
     @patch("src.reconstruction.reconstruction._run_colmap")
     def test_gs_enabled(
-        self, mock_colmap, mock_recon_subprocess, mock_gs_subprocess, tmp_path
+        self, mock_colmap, mock_stats, mock_gs_subprocess, tmp_path
     ):
         """gaussian_splatting=True일 때 GS 학습이 실행되는지 확인."""
         image_dir = tmp_path / "images"
@@ -270,11 +273,8 @@ class TestReconstructWithGaussianSplatting:
 
         mock_colmap.side_effect = colmap_side_effect
 
-        # model_analyzer
-        mock_recon_subprocess.return_value = MagicMock(
-            returncode=0,
-            stdout="Registered images = 5\nPoints 3D = 120\n",
-        )
+        # model_dir을 실제 생성된 경로로 업데이트
+        mock_stats.return_value["model_dir"] = str(workspace / "sparse" / "0")
 
         gs_call_count = 0
 
