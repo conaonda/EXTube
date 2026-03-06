@@ -11,6 +11,8 @@ from src.api.rate_limit import RateLimitMiddleware
 from src.api.routers.jobs import JobStatus
 from src.downloader import VideoMetadata
 
+_YT_URL = "https://www.youtube.com/watch?v=dQw4w9WgXcQ"
+
 _MOCK_METADATA = VideoMetadata(
     duration=120, title="Test Video", video_id="dQw4w9WgXcQ",
     height=1080, filesize_approx=50 * 1024 * 1024,
@@ -83,13 +85,16 @@ class TestRateLimitMiddleware:
         _reset_rate_limiter()
         with (
             patch("src.api.routers.jobs.validate_youtube_url", return_value=True),
-            patch("src.api.routers.jobs.fetch_video_metadata", return_value=_MOCK_METADATA),
+            patch(
+                "src.api.routers.jobs.fetch_video_metadata",
+                return_value=_MOCK_METADATA,
+            ),
             patch("src.api.routers.jobs._enqueue_job"),
         ):
             for _ in range(5):
                 resp = client.post(
                     "/api/jobs",
-                    json={"url": "https://www.youtube.com/watch?v=dQw4w9WgXcQ", "force_reprocess": True},
+                    json={"url": _YT_URL, "force_reprocess": True},
                     headers=headers,
                 )
                 assert resp.status_code == 201
@@ -98,7 +103,7 @@ class TestRateLimitMiddleware:
 
             resp = client.post(
                 "/api/jobs",
-                json={"url": "https://www.youtube.com/watch?v=dQw4w9WgXcQ", "force_reprocess": True},
+                json={"url": _YT_URL, "force_reprocess": True},
                 headers=headers,
             )
             assert resp.status_code == 429
