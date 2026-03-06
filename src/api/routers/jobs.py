@@ -48,13 +48,20 @@ class JobStatus(StrEnum):
     cancelled = "cancelled"
 
 
-_VALID_CAMERA_MODELS = frozenset({
-    "SIMPLE_PINHOLE", "PINHOLE",
-    "SIMPLE_RADIAL", "RADIAL",
-    "OPENCV", "OPENCV_FISHEYE",
-    "FULL_OPENCV", "SIMPLE_RADIAL_FISHEYE",
-    "RADIAL_FISHEYE", "THIN_PRISM_FISHEYE",
-})
+_VALID_CAMERA_MODELS = frozenset(
+    {
+        "SIMPLE_PINHOLE",
+        "PINHOLE",
+        "SIMPLE_RADIAL",
+        "RADIAL",
+        "OPENCV",
+        "OPENCV_FISHEYE",
+        "FULL_OPENCV",
+        "SIMPLE_RADIAL_FISHEYE",
+        "RADIAL_FISHEYE",
+        "THIN_PRISM_FISHEYE",
+    }
+)
 
 
 class JobCreate(BaseModel):
@@ -65,34 +72,46 @@ class JobCreate(BaseModel):
         examples=["https://www.youtube.com/watch?v=dQw4w9WgXcQ"],
     )
     max_height: int = Field(
-        1080, description="다운로드 영상의 최대 높이 (px)",
+        1080,
+        description="다운로드 영상의 최대 높이 (px)",
     )
     frame_interval: float = Field(
-        1.0, ge=0.1, le=300,
+        1.0,
+        ge=0.1,
+        le=300,
         description="프레임 추출 간격 (초, 0.1~300)",
     )
     blur_threshold: float = Field(
-        100.0, ge=0, le=500,
+        100.0,
+        ge=0,
+        le=500,
         description="블러 필터링 임계값 (0~500, 낮을수록 엄격)",
     )
     camera_model: str = Field(
-        "SIMPLE_RADIAL", description="COLMAP 카메라 모델",
+        "SIMPLE_RADIAL",
+        description="COLMAP 카메라 모델",
     )
     dense: bool = Field(
-        False, description="Dense reconstruction 수행 여부",
+        False,
+        description="Dense reconstruction 수행 여부",
     )
     max_image_size: int = Field(
-        0, description="COLMAP 입력 이미지 최대 크기 (0=제한 없음)",
+        0,
+        description="COLMAP 입력 이미지 최대 크기 (0=제한 없음)",
     )
     gaussian_splatting: bool = Field(
-        False, description="3D Gaussian Splatting 수행 여부",
+        False,
+        description="3D Gaussian Splatting 수행 여부",
     )
     gs_max_iterations: int | None = Field(
-        None, ge=1, le=100_000,
+        None,
+        ge=1,
+        le=100_000,
         description="GS 최대 반복 횟수 (1~100,000)",
     )
     force_reprocess: bool = Field(
-        False, description="기존 완료된 결과가 있어도 강제 재처리",
+        False,
+        description="기존 완료된 결과가 있어도 강제 재처리",
     )
 
     @field_validator("camera_model")
@@ -100,8 +119,7 @@ class JobCreate(BaseModel):
     def validate_camera_model(cls, v: str) -> str:
         if v not in _VALID_CAMERA_MODELS:
             raise ValueError(
-                f"지원하지 않는 카메라 모델: {v}. "
-                f"허용: {sorted(_VALID_CAMERA_MODELS)}"
+                f"지원하지 않는 카메라 모델: {v}. 허용: {sorted(_VALID_CAMERA_MODELS)}"
             )
         return v
 
@@ -113,12 +131,8 @@ class JobResponse(BaseModel):
     status: JobStatus = Field(description="작업 상태")
     url: str = Field(description="원본 유튜브 URL")
     error: str | None = Field(None, description="오류 메시지 (실패 시)")
-    result: dict[str, Any] | None = Field(
-        None, description="복원 결과 메타데이터"
-    )
-    gs_splat_url: str | None = Field(
-        None, description="Gaussian Splatting 파일 URL"
-    )
+    result: dict[str, Any] | None = Field(None, description="복원 결과 메타데이터")
+    gs_splat_url: str | None = Field(None, description="Gaussian Splatting 파일 URL")
     retry_count: int = Field(0, description="재시도 횟수")
 
 
@@ -183,7 +197,10 @@ _ALLOWED_SORT_FIELDS = {"created_at", "status", "url"}
 
 
 @router.post(
-    "/jobs", response_model=JobResponse, status_code=201, summary="복원 작업 생성",
+    "/jobs",
+    response_model=JobResponse,
+    status_code=201,
+    summary="복원 작업 생성",
 )
 def create_job(
     body: JobCreate,
@@ -222,8 +239,7 @@ def create_job(
         raise HTTPException(
             status_code=422,
             detail=(
-                f"영상 길이({minutes}분 {seconds}초)가 "
-                f"제한({limit_min}분)을 초과합니다"
+                f"영상 길이({minutes}분 {seconds}초)가 제한({limit_min}분)을 초과합니다"
             ),
         )
 
@@ -250,7 +266,9 @@ def create_job(
     active_count = 0
     for s in active_statuses:
         result = store.list(
-            status=s.value, user_id=current_user["id"], limit=0,
+            status=s.value,
+            user_id=current_user["id"],
+            limit=0,
         )
         active_count += result["total"]
     if active_count >= _settings.max_jobs_per_user:
@@ -261,7 +279,10 @@ def create_job(
 
     job_id = uuid.uuid4().hex[:12]
     store.create(
-        job_id, JobStatus.pending, body.url, user_id=current_user["id"],
+        job_id,
+        JobStatus.pending,
+        body.url,
+        user_id=current_user["id"],
     )
     params = {
         k: v
@@ -279,7 +300,9 @@ def create_job(
 
 
 @router.get(
-    "/jobs", response_model=JobListResponse, summary="작업 목록 조회",
+    "/jobs",
+    response_model=JobListResponse,
+    summary="작업 목록 조회",
 )
 def list_jobs(
     status: JobStatus | None = Query(None),
@@ -327,7 +350,9 @@ def list_jobs(
 
 
 @router.get(
-    "/jobs/{job_id}", response_model=JobResponse, summary="작업 상태 조회",
+    "/jobs/{job_id}",
+    response_model=JobResponse,
+    summary="작업 상태 조회",
 )
 def get_job(
     job_id: str,
@@ -409,7 +434,9 @@ def cancel_job(
     job = get_user_job(job_id, current_user)
 
     cancellable = (
-        JobStatus.pending, JobStatus.processing, JobStatus.retrying,
+        JobStatus.pending,
+        JobStatus.processing,
+        JobStatus.retrying,
     )
     if job["status"] not in cancellable:
         raise HTTPException(
@@ -432,7 +459,9 @@ def cancel_job(
                 pass
 
         store.update(
-            job_id, status="cancelled", error="사용자에 의해 취소됨",
+            job_id,
+            status="cancelled",
+            error="사용자에 의해 취소됨",
         )
 
         conn.publish(
@@ -475,10 +504,7 @@ async def stream_job(
                         "status": "timeout",
                         "message": "스트리밍 시간 초과",
                     }
-                    yield (
-                        f"data: "
-                        f"{json.dumps(timeout_data, ensure_ascii=False)}\n\n"
-                    )
+                    yield (f"data: {json.dumps(timeout_data, ensure_ascii=False)}\n\n")
                     break
 
                 current = store.get(job_id)
@@ -486,7 +512,9 @@ async def stream_job(
                     break
 
                 terminal = (
-                    JobStatus.completed, JobStatus.failed, JobStatus.cancelled,
+                    JobStatus.completed,
+                    JobStatus.failed,
+                    JobStatus.cancelled,
                 )
                 if current["status"] in terminal:
                     final_data = {
@@ -495,10 +523,7 @@ async def stream_job(
                         "result": current.get("result"),
                         "error": current.get("error"),
                     }
-                    yield (
-                        f"data: "
-                        f"{json.dumps(final_data, ensure_ascii=False)}\n\n"
-                    )
+                    yield (f"data: {json.dumps(final_data, ensure_ascii=False)}\n\n")
                     break
 
                 progress = current.get("progress")
@@ -508,10 +533,7 @@ async def stream_job(
                         "status": current["status"],
                         "progress": progress,
                     }
-                    yield (
-                        f"data: "
-                        f"{json.dumps(event_data, ensure_ascii=False)}\n\n"
-                    )
+                    yield (f"data: {json.dumps(event_data, ensure_ascii=False)}\n\n")
 
                 await asyncio.sleep(1)
         except asyncio.CancelledError:

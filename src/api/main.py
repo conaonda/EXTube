@@ -90,7 +90,8 @@ app.include_router(storage_router)
 
 # --- 미들웨어 ---
 app.add_middleware(
-    SecurityHeadersMiddleware, environment=_settings.environment,
+    SecurityHeadersMiddleware,
+    environment=_settings.environment,
 )
 
 app.add_middleware(
@@ -107,7 +108,8 @@ app.add_middleware(
     default_rule=RateLimitRule(max_requests=100, window_seconds=60),
     path_rules={
         ("POST", "/api/jobs"): RateLimitRule(
-            max_requests=5, window_seconds=3600,
+            max_requests=5,
+            window_seconds=3600,
         ),
     },
 )

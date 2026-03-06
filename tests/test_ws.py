@@ -35,9 +35,7 @@ def _clear_jobs():
 def _register_and_login(username=TEST_USER, password=TEST_PASS) -> str:
     """사용자 등록 후 로그인하여 access_token을 반환한다."""
     client.post("/auth/register", json={"username": username, "password": password})
-    resp = client.post(
-        "/auth/login", data={"username": username, "password": password}
-    )
+    resp = client.post("/auth/login", data={"username": username, "password": password})
     return resp.json()["access_token"]
 
 

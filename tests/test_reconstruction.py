@@ -506,7 +506,12 @@ class TestReconstructZeroPoints:
     @patch("src.reconstruction.reconstruction.exhaustive_matcher")
     @patch("src.reconstruction.reconstruction.feature_extractor")
     def test_zero_points3d_raises(
-        self, mock_fe, mock_em, mock_sr, mock_stats, tmp_path,
+        self,
+        mock_fe,
+        mock_em,
+        mock_sr,
+        mock_stats,
+        tmp_path,
     ):
         image_dir = tmp_path / "images"
         image_dir.mkdir()

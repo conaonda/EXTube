@@ -7,4 +7,9 @@ from src.downloader.downloader import (
     validate_youtube_url,
 )
 
-__all__ = ["VideoMetadata", "download_video", "fetch_video_metadata", "validate_youtube_url"]
+__all__ = [
+    "VideoMetadata",
+    "download_video",
+    "fetch_video_metadata",
+    "validate_youtube_url",
+]

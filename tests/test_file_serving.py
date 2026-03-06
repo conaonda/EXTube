@@ -174,8 +174,12 @@ class TestPotreeEndpoint:
         _job_store._conn.execute(
             """INSERT INTO jobs (id, url, status, user_id, potree_dir, created_at)
                VALUES (?, ?, 'completed', ?, ?, strftime('%s', 'now'))""",
-            (job_id, "https://www.youtube.com/watch?v=test",
-             user["id"], str(potree_dir)),
+            (
+                job_id,
+                "https://www.youtube.com/watch?v=test",
+                user["id"],
+                str(potree_dir),
+            ),
         )
         _job_store._conn.commit()
 
@@ -212,7 +216,5 @@ class TestDownloadEndpoint:
         recon_dir = OUTPUT_BASE / job_id / "reconstruction"
         recon_dir.mkdir(parents=True, exist_ok=True)
 
-        resp = client.get(
-            f"/api/jobs/{job_id}/download/../../etc/passwd?token={token}"
-        )
+        resp = client.get(f"/api/jobs/{job_id}/download/../../etc/passwd?token={token}")
         assert resp.status_code in (400, 404)

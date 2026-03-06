@@ -198,9 +198,7 @@ class JobStore:
             self._conn.execute(
                 "CREATE INDEX IF NOT EXISTS idx_jobs_user_id ON jobs(user_id)"
             )
-        self._conn.execute(
-            "CREATE INDEX IF NOT EXISTS idx_jobs_url ON jobs(url)"
-        )
+        self._conn.execute("CREATE INDEX IF NOT EXISTS idx_jobs_url ON jobs(url)")
         self._conn.commit()
 
     def create(
@@ -273,7 +271,8 @@ class JobStore:
 
             query_params = params + [limit, offset]
             rows = self._conn.execute(
-                f"SELECT * FROM jobs{where} ORDER BY {sort_by} {direction} LIMIT ? OFFSET ?",  # noqa: S608
+                f"SELECT * FROM jobs{where} ORDER BY {sort_by} {direction}"  # noqa: S608, E501
+                " LIMIT ? OFFSET ?",
                 query_params,
             ).fetchall()
 
@@ -337,9 +336,7 @@ class JobStore:
             ).fetchall()
         return [dict(row) for row in rows]
 
-    def get_user_storage_usage(
-        self, user_id: str, jobs_dir: Path
-    ) -> dict[str, Any]:
+    def get_user_storage_usage(self, user_id: str, jobs_dir: Path) -> dict[str, Any]:
         """사용자의 스토리지 사용량을 계산한다."""
         with self._lock:
             rows = self._conn.execute(
@@ -367,7 +364,8 @@ class JobStore:
         """동일 URL로 해당 유저가 완료한 가장 최근 Job을 반환한다."""
         with self._lock:
             row = self._conn.execute(
-                "SELECT * FROM jobs WHERE url = ? AND user_id = ? AND status = 'completed'"
+                "SELECT * FROM jobs WHERE url = ? AND user_id = ?"
+                " AND status = 'completed'"
                 " ORDER BY created_at DESC LIMIT 1",
                 (url, user_id),
             ).fetchone()
