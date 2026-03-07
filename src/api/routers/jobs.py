@@ -26,6 +26,7 @@ from src.api.dependencies import (
     sanitize_for_message,
     validate_job_path,
 )
+from src.api.queue_manager import JobPriority, get_queue_manager
 from src.api.tasks import run_pipeline
 from src.downloader import fetch_video_metadata, validate_youtube_url
 
@@ -109,10 +110,21 @@ class JobCreate(BaseModel):
         le=100_000,
         description="GS 최대 반복 횟수 (1~100,000)",
     )
+    priority: str = Field(
+        "normal",
+        description="작업 우선순위 (normal/high)",
+    )
     force_reprocess: bool = Field(
         False,
         description="기존 완료된 결과가 있어도 강제 재처리",
     )
+
+    @field_validator("priority")
+    @classmethod
+    def validate_priority(cls, v: str) -> str:
+        if v not in ("normal", "high"):
+            raise ValueError(f"우선순위는 normal 또는 high여야 합니다: {v}")
+        return v
 
     @field_validator("camera_model")
     @classmethod
@@ -134,6 +146,10 @@ class JobResponse(BaseModel):
     result: dict[str, Any] | None = Field(None, description="복원 결과 메타데이터")
     gs_splat_url: str | None = Field(None, description="Gaussian Splatting 파일 URL")
     retry_count: int = Field(0, description="재시도 횟수")
+    queue_position: int | None = Field(
+        None,
+        description="큐 대기 위치 (대기 중일 때)",
+    )
 
 
 class JobListResponse(BaseModel):
@@ -163,6 +179,12 @@ def _build_response(job: dict[str, Any]) -> JobResponse:
     gs_splat_url = None
     if job.get("gs_splat_path"):
         gs_splat_url = f"/api/jobs/{job['id']}/splat"
+
+    queue_position = None
+    if job["status"] == JobStatus.pending:
+        qm = get_queue_manager()
+        queue_position = qm.get_position(job["id"])
+
     return JobResponse(
         id=job["id"],
         status=job["status"],
@@ -171,11 +193,19 @@ def _build_response(job: dict[str, Any]) -> JobResponse:
         result=job.get("result"),
         gs_splat_url=gs_splat_url,
         retry_count=job.get("retry_count") or 0,
+        queue_position=queue_position,
     )
 
 
-def _enqueue_job(job_id: str, body: JobCreate) -> None:
-    """RQ 큐에 파이프라인 태스크를 추가한다."""
+def _enqueue_job(
+    job_id: str,
+    body: JobCreate,
+    priority: JobPriority = JobPriority.normal,
+) -> None:
+    """RQ 큐에 파이프라인 태스크를 추가하고 큐 관리자에 등록한다."""
+    qm = get_queue_manager()
+    qm.enqueue(job_id, priority=priority)
+
     q = _get_queue()
     q.enqueue(
         run_pipeline,
@@ -290,12 +320,17 @@ def create_job(
         if k not in ("url", "force_reprocess")
     }
     store.update(job_id, params=params)
-    _enqueue_job(job_id, body)
+    job_priority = JobPriority(body.priority)
+    _enqueue_job(job_id, body, priority=job_priority)
+
+    qm = get_queue_manager()
+    queue_position = qm.get_position(job_id)
 
     return JobResponse(
         id=job_id,
         status=JobStatus.pending,
         url=body.url,
+        queue_position=queue_position,
     )
 
 
@@ -444,6 +479,10 @@ def cancel_job(
             detail=f"취소할 수 없는 상태입니다 (현재: {job['status']})",
         )
 
+    # 큐에서 제거
+    qm = get_queue_manager()
+    qm.cancel(job_id)
+
     conn = _get_redis_connection()
     try:
         try:
@@ -547,3 +586,29 @@ async def stream_job(
             "X-Accel-Buffering": "no",
         },
     )
+
+
+class QueueStatusResponse(BaseModel):
+    """큐 상태 응답."""
+
+    max_concurrent: int = Field(description="최대 동시 실행 수")
+    active_count: int = Field(description="현재 실행 중인 작업 수")
+    active_jobs: list[str] = Field(description="실행 중인 작업 ID")
+    pending_count: int = Field(description="대기 중인 작업 수")
+    waiting_jobs: list[dict[str, Any]] = Field(
+        description="대기 중인 작업 목록",
+    )
+
+
+@router.get(
+    "/queue/status",
+    response_model=QueueStatusResponse,
+    summary="큐 상태 조회",
+)
+def get_queue_status(
+    current_user: dict = Depends(get_current_user),
+) -> QueueStatusResponse:
+    """작업 큐의 현재 상태를 반환한다."""
+    qm = get_queue_manager()
+    status = qm.get_status()
+    return QueueStatusResponse(**status)
