@@ -5,7 +5,8 @@ from __future__ import annotations
 import asyncio
 import json
 import threading
-from collections import defaultdict
+import time
+from collections import defaultdict, deque
 from typing import Any
 
 from fastapi import WebSocket, WebSocketDisconnect
@@ -17,6 +18,8 @@ from src.api.logging_config import get_logger
 
 logger = get_logger(__name__)
 
+_MAX_EVENT_HISTORY = 50
+
 
 class JobProgressManager:
     """Job별 WebSocket 연결을 관리하고 진행 상태를 브로드캐스트한다."""
@@ -24,6 +27,10 @@ class JobProgressManager:
     def __init__(self) -> None:
         self._connections: dict[str, list[WebSocket]] = defaultdict(list)
         self._lock = asyncio.Lock()
+        self._seq: dict[str, int] = defaultdict(int)
+        self._events: dict[str, deque[dict[str, Any]]] = defaultdict(
+            lambda: deque(maxlen=_MAX_EVENT_HISTORY)
+        )
 
     async def connect(self, job_id: str, websocket: WebSocket) -> None:
         async with self._lock:
@@ -43,8 +50,12 @@ class JobProgressManager:
     async def broadcast(self, job_id: str, data: dict[str, Any]) -> None:
         """job_id에 연결된 모든 WebSocket 클라이언트에 메시지를 전송한다."""
         async with self._lock:
+            self._seq[job_id] += 1
+            seq = self._seq[job_id]
+            enriched = {**data, "seq": seq, "timestamp": time.time()}
+            self._events[job_id].append(enriched)
             conns = list(self._connections.get(job_id, []))
-        message = json.dumps(data, ensure_ascii=False)
+        message = json.dumps(enriched, ensure_ascii=False)
         dead: list[WebSocket] = []
         for ws in conns:
             try:
@@ -60,6 +71,14 @@ class JobProgressManager:
 
     def has_connections(self, job_id: str) -> bool:
         return bool(self._connections.get(job_id))
+
+    def get_events_since(self, job_id: str, last_seq: int) -> list[dict[str, Any]]:
+        """last_seq 이후의 이벤트를 반환한다."""
+        return [e for e in self._events.get(job_id, []) if e["seq"] > last_seq]
+
+    def get_current_seq(self, job_id: str) -> int:
+        """현재 시퀀스 번호를 반환한다."""
+        return self._seq.get(job_id, 0)
 
 
 progress_manager = JobProgressManager()
@@ -180,12 +199,14 @@ async def websocket_job_handler(
     except WebSocketDisconnect:
         return
 
-    # 토큰 파싱: 순수 토큰 문자열 또는 JSON {"token": "..."} 지원
+    # 토큰 파싱: 순수 토큰 문자열 또는 JSON {"token": "...", "last_seq": N} 지원
     token: str | None = None
+    last_seq: int = 0
     try:
         parsed = json.loads(auth_message)
         if isinstance(parsed, dict):
             token = parsed.get("token")
+            last_seq = parsed.get("last_seq", 0)
     except (json.JSONDecodeError, TypeError):
         token = auth_message.strip()
 
@@ -206,16 +227,21 @@ async def websocket_job_handler(
 
     await progress_manager.connect(job_id, websocket)
 
-    # 현재 상태를 즉시 전송
-    initial = {
-        "status": job["status"],
-        "progress": job.get("progress"),
-    }
-    if job["status"] == "completed":
-        initial["result"] = job.get("result")
-    elif job["status"] == "failed":
-        initial["error"] = job.get("error")
-    await websocket.send_text(json.dumps(initial, ensure_ascii=False))
+    # 재연결 시 누락 이벤트 재전송
+    if last_seq > 0:
+        missed = progress_manager.get_events_since(job_id, last_seq)
+        if missed:
+            for event in missed:
+                await websocket.send_text(json.dumps(event, ensure_ascii=False))
+        else:
+            # 히스토리에 없으면 현재 DB 상태를 전송
+            seq = progress_manager.get_current_seq(job_id)
+            initial = _build_initial_state(job, seq)
+            await websocket.send_text(json.dumps(initial, ensure_ascii=False))
+    else:
+        # 최초 연결: 현재 상태를 즉시 전송
+        initial = _build_initial_state(job, progress_manager.get_current_seq(job_id))
+        await websocket.send_text(json.dumps(initial, ensure_ascii=False))
 
     try:
         while True:
@@ -224,3 +250,18 @@ async def websocket_job_handler(
         pass
     finally:
         await progress_manager.disconnect(job_id, websocket)
+
+
+def _build_initial_state(job: dict[str, Any], seq: int) -> dict[str, Any]:
+    """초기 전송용 상태 메시지를 구성한다."""
+    initial: dict[str, Any] = {
+        "status": job["status"],
+        "progress": job.get("progress"),
+        "seq": seq,
+        "timestamp": time.time(),
+    }
+    if job["status"] == "completed":
+        initial["result"] = job.get("result")
+    elif job["status"] == "failed":
+        initial["error"] = job.get("error")
+    return initial

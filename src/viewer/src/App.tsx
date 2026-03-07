@@ -79,7 +79,7 @@ export default function App() {
     [wsJobId, handleJobCompleted],
   )
 
-  useJobWebSocket({ jobId: wsJobId, token: getAccessToken(), onMessage: onWsMessage })
+  const { connectionStatus } = useJobWebSocket({ jobId: wsJobId, token: getAccessToken(), onMessage: onWsMessage })
 
   const loadJob = useCallback(
     async (id: string) => {
@@ -184,7 +184,7 @@ export default function App() {
             )}
           </div>
         )}
-        {job && <JobStatusBar job={job} progress={progress} onCancel={handleCancel} cancelling={cancelling} />}
+        {job && <JobStatusBar job={job} progress={progress} onCancel={handleCancel} cancelling={cancelling} connectionStatus={connectionStatus} />}
       </div>
       <ViewerCanvas plyUrl={plyUrl} potreeUrl={potreeUrl} splatUrl={splatUrl} />
     </>
