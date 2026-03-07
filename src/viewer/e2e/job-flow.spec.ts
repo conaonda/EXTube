@@ -78,4 +78,38 @@ test.describe('3D 뷰어', () => {
     const canvas = page.locator('canvas')
     await expect(canvas).toBeVisible({ timeout: 10000 })
   })
+
+  test('완료된 작업 로드 시 결과 정보가 표시된다', async ({ page }) => {
+    await page.route('**/api/jobs/result-job-1', async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          id: 'result-job-1',
+          status: 'completed',
+          url: 'https://www.youtube.com/watch?v=test',
+          error: null,
+          result: {
+            num_points3d: 8500,
+            num_registered: 15,
+            has_gaussian_splatting: false,
+            has_potree: false,
+          },
+          gs_splat_url: null,
+          retry_count: 0,
+        }),
+      })
+    })
+
+    await page.route('**/api/jobs/result-job-1/result', async (route) => {
+      await route.abort()
+    })
+
+    await loginViaLocalStorage(page)
+    await page.goto('/jobs/result-job-1')
+
+    await expect(page.getByText('완료')).toBeVisible({ timeout: 5000 })
+    await expect(page.getByText('8,500')).toBeVisible()
+    await expect(page.getByText('15')).toBeVisible()
+  })
 })
