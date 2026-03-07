@@ -215,7 +215,7 @@ class TestReconstructWithGaussianSplatting:
             (image_dir / f"frame_{i:06d}.jpg").write_bytes(b"\xff" * 100)
         workspace = tmp_path / "workspace"
 
-        def side_effect(command, args):
+        def side_effect(command, args, **kwargs):
             if command == "feature_extractor":
                 db = workspace / "database.db"
                 db.parent.mkdir(parents=True, exist_ok=True)
@@ -254,7 +254,7 @@ class TestReconstructWithGaussianSplatting:
             (image_dir / f"frame_{i:06d}.jpg").write_bytes(b"\xff" * 100)
         workspace = tmp_path / "workspace"
 
-        def colmap_side_effect(command, args):
+        def colmap_side_effect(command, args, **kwargs):
             if command == "feature_extractor":
                 db = workspace / "database.db"
                 db.parent.mkdir(parents=True, exist_ok=True)
