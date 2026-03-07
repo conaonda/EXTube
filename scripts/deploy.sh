@@ -16,27 +16,20 @@ info()  { echo -e "${GREEN}[INFO]${NC} $*"; }
 warn()  { echo -e "${YELLOW}[WARN]${NC} $*"; }
 error() { echo -e "${RED}[ERROR]${NC} $*"; exit 1; }
 
-# 사전 조건 확인
+# 사전 조건 확인 (validate-prod-config.sh로 위임)
 check_prerequisites() {
-    info "사전 조건 확인 중..."
+    info "사전 검증 스크립트 실행 중..."
 
-    command -v docker >/dev/null 2>&1 || error "Docker가 설치되어 있지 않습니다"
-    docker compose version >/dev/null 2>&1 || error "Docker Compose가 설치되어 있지 않습니다"
-
-    if [ ! -f "$DOCKER_DIR/.env" ]; then
-        error "docker/.env 파일이 없습니다. docker/.env.example을 복사하여 생성하세요:\n  cp $DOCKER_DIR/.env.example $DOCKER_DIR/.env"
+    local gpu_flag=""
+    if [ "${1:-}" = "--gpu" ]; then
+        gpu_flag="--gpu"
     fi
 
-    # JWT secret key 기본값 확인
-    if [ -f "$PROJECT_DIR/.env" ]; then
-        if grep -q "change-me" "$PROJECT_DIR/.env" 2>/dev/null; then
-            error "EXTUBE_JWT_SECRET_KEY가 기본값입니다. 변경하세요."
-        fi
-    else
-        warn ".env 파일이 없습니다. .env.example을 복사하여 생성하세요:\n  cp $PROJECT_DIR/.env.example $PROJECT_DIR/.env"
+    if ! "$SCRIPT_DIR/validate-prod-config.sh" $gpu_flag; then
+        error "사전 검증 실패. 위 오류를 수정한 후 다시 시도하세요."
     fi
 
-    info "사전 조건 확인 완료"
+    info "사전 검증 완료"
 }
 
 # 빌드 및 실행
@@ -78,5 +71,5 @@ deploy() {
 }
 
 # 메인
-check_prerequisites
+check_prerequisites "${1:-}"
 deploy "$@"
