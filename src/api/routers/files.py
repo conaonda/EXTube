@@ -2,10 +2,12 @@
 
 from __future__ import annotations
 
+import io
+import zipfile
 from pathlib import Path
 
 from fastapi import APIRouter, Depends, HTTPException
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, StreamingResponse
 from pydantic import BaseModel
 
 from src.api import dependencies
@@ -269,5 +271,76 @@ def download_job_file(
         filename=target.name,
         headers={
             "Content-Disposition": f'attachment; filename="{target.name}"',
+        },
+    )
+
+
+_MAX_ZIP_BYTES = 2 * 1024 * 1024 * 1024  # 2 GB
+
+
+@router.get(
+    "/jobs/{job_id}/download-zip",
+    summary="작업 결과물 ZIP 번들 다운로드",
+)
+def download_job_zip(
+    job_id: str,
+    current_user: dict = Depends(get_current_user),
+) -> StreamingResponse:
+    """완료된 작업의 전체 결과물을 ZIP으로 묶어 다운로드한다."""
+    job = get_user_job(job_id, current_user)
+
+    if job["status"] != "completed":
+        raise HTTPException(
+            status_code=400,
+            detail=f"작업이 완료되지 않았습니다 (상태: {job['status']})",
+        )
+
+    try:
+        job_dir = validate_job_path(job_id)
+    except ValueError:
+        raise HTTPException(
+            status_code=404,
+            detail="작업을 찾을 수 없습니다",
+        )
+
+    result_dir = job_dir / "reconstruction"
+    if not result_dir.is_dir():
+        raise HTTPException(
+            status_code=404,
+            detail="결과 디렉토리를 찾을 수 없습니다",
+        )
+
+    base_resolved = result_dir.resolve()
+    files: list[tuple[Path, str]] = []
+    total_size = 0
+    for f in sorted(result_dir.rglob("*")):
+        if f.is_file() and f.resolve().is_relative_to(base_resolved):
+            total_size += f.stat().st_size
+            if total_size > _MAX_ZIP_BYTES:
+                raise HTTPException(
+                    status_code=413,
+                    detail="결과물 크기가 다운로드 제한(2GB)을 초과합니다",
+                )
+            rel = str(f.relative_to(result_dir))
+            files.append((f, rel))
+
+    if not files:
+        raise HTTPException(
+            status_code=404,
+            detail="다운로드할 파일이 없습니다",
+        )
+
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
+        for file_path, arcname in files:
+            zf.write(file_path, arcname)
+    buf.seek(0)
+
+    filename = f"extube_{job_id}.zip"
+    return StreamingResponse(
+        buf,
+        media_type="application/zip",
+        headers={
+            "Content-Disposition": f'attachment; filename="{filename}"',
         },
     )

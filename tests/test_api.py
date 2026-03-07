@@ -993,6 +993,81 @@ class TestDownloadJobFile:
         assert resp.content == b"camera binary"
 
 
+class TestDownloadJobZip:
+    """GET /api/jobs/{id}/download-zip ZIP 번들 다운로드 테스트."""
+
+    def test_not_found(self):
+        """존재하지 않는 작업은 404를 반환한다."""
+        headers = _get_auth_headers()
+        resp = client.get("/api/jobs/nonexistent/download-zip", headers=headers)
+        assert resp.status_code == 404
+
+    def test_not_completed(self):
+        """완료되지 않은 작업은 400을 반환한다."""
+        headers = _get_auth_headers()
+        _insert_job("aabbccddeef1", status=JobStatus.processing)
+        resp = client.get("/api/jobs/aabbccddeef1/download-zip", headers=headers)
+        assert resp.status_code == 400
+
+    @patch("src.api.dependencies.get_output_base_dir")
+    def test_no_reconstruction_dir(self, mock_base_dir, tmp_path):
+        """reconstruction 디렉토리가 없으면 404를 반환한다."""
+        headers = _get_auth_headers()
+        mock_base_dir.return_value = tmp_path
+        job_dir = tmp_path / "aabbccddeef2"
+        job_dir.mkdir(parents=True)
+
+        _insert_job("aabbccddeef2", status=JobStatus.completed)
+        resp = client.get("/api/jobs/aabbccddeef2/download-zip", headers=headers)
+        assert resp.status_code == 404
+
+    @patch("src.api.dependencies.get_output_base_dir")
+    def test_download_zip_bundle(self, mock_base_dir, tmp_path):
+        """결과물을 ZIP으로 다운로드한다."""
+        import io
+        import zipfile
+
+        headers = _get_auth_headers()
+        mock_base_dir.return_value = tmp_path
+        job_dir = tmp_path / "aabbccddeef3"
+        recon_dir = job_dir / "reconstruction"
+        recon_dir.mkdir(parents=True)
+        (recon_dir / "points.ply").write_bytes(b"ply data")
+        sub = recon_dir / "sparse"
+        sub.mkdir()
+        (sub / "cameras.bin").write_bytes(b"cam data")
+
+        _insert_job("aabbccddeef3", status=JobStatus.completed)
+        resp = client.get("/api/jobs/aabbccddeef3/download-zip", headers=headers)
+        assert resp.status_code == 200
+        assert resp.headers["content-type"] == "application/zip"
+        assert "attachment" in resp.headers.get("content-disposition", "")
+
+        zf = zipfile.ZipFile(io.BytesIO(resp.content))
+        names = zf.namelist()
+        assert "points.ply" in names
+        assert "sparse/cameras.bin" in names
+        assert zf.read("points.ply") == b"ply data"
+
+    @patch("src.api.dependencies.get_output_base_dir")
+    def test_empty_reconstruction_dir(self, mock_base_dir, tmp_path):
+        """결과 디렉토리가 비어있으면 404를 반환한다."""
+        headers = _get_auth_headers()
+        mock_base_dir.return_value = tmp_path
+        job_dir = tmp_path / "aabbccddeef4"
+        recon_dir = job_dir / "reconstruction"
+        recon_dir.mkdir(parents=True)
+
+        _insert_job("aabbccddeef4", status=JobStatus.completed)
+        resp = client.get("/api/jobs/aabbccddeef4/download-zip", headers=headers)
+        assert resp.status_code == 404
+
+    def test_unauthenticated_returns_401(self):
+        """인증 없이 접근하면 401을 반환한다."""
+        resp = client.get("/api/jobs/aabbccddeef5/download-zip")
+        assert resp.status_code == 401
+
+
 class TestOpenAPIDocs:
     """OpenAPI 문서 테스트."""
 
