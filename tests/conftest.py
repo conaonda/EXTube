@@ -10,7 +10,7 @@ def mock_queue_manager():
     """QueueManager 싱글턴을 mock하여 Redis 연결을 방지한다."""
     mock_qm = MagicMock()
     mock_qm.enqueue.return_value = 1
-    mock_qm.dequeue.return_value = None
+    mock_qm.activate.return_value = None
     mock_qm.get_position.return_value = None
     mock_qm.cancel.return_value = True
     mock_qm.get_status.return_value = {

@@ -92,8 +92,8 @@ def run_pipeline(
     redis_conn = _get_redis()
     qm = get_queue_manager(redis_conn)
 
-    # QueueManager에서 작업을 꺼내고 활성 목록에 등록
-    qm.dequeue()
+    # RQ가 실행 중인 작업을 활성 목록에 등록
+    qm.activate(job_id)
 
     job_store.update(job_id, status="processing")
 

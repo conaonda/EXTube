@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import logging
 import threading
+import time
 from enum import StrEnum
 from typing import Any
 
@@ -41,7 +42,6 @@ class QueueManager:
     def __init__(self, redis_conn: redis.Redis | None = None) -> None:
         self._conn = redis_conn or redis.from_url(_settings.redis_url)
         self._max_concurrent = _settings.queue_max_concurrent
-        self._lock = threading.Lock()
 
     def enqueue(
         self,
@@ -49,8 +49,6 @@ class QueueManager:
         priority: JobPriority = JobPriority.normal,
     ) -> int:
         """작업을 큐에 추가하고 큐 위치를 반환한다."""
-        import time
-
         score = _PRIORITY_SCORES[priority] + time.time()
         meta = {"job_id": job_id, "priority": priority.value}
         pipe = self._conn.pipeline()
@@ -71,28 +69,13 @@ class QueueManager:
         )
         return position
 
-    def dequeue(self) -> str | None:
-        """큐에서 다음 작업을 꺼낸다. 동시실행 제한을 확인한다."""
-        with self._lock:
-            active_count = self._conn.scard(_ACTIVE_KEY)
-            if active_count >= self._max_concurrent:
-                return None
-
-            members = self._conn.zrange(_QUEUE_KEY, 0, 0)
-            if not members:
-                return None
-
-            job_id = members[0]
-            if isinstance(job_id, bytes):
-                job_id = job_id.decode()
-
-            pipe = self._conn.pipeline()
-            pipe.zrem(_QUEUE_KEY, job_id)
-            pipe.sadd(_ACTIVE_KEY, job_id)
-            pipe.execute()
-
-            logger.info("작업 큐에서 꺼냄: %s", job_id)
-            return job_id
+    def activate(self, job_id: str) -> None:
+        """RQ가 실행 중인 작업을 대기 큐에서 제거하고 활성 목록에 등록한다."""
+        pipe = self._conn.pipeline()
+        pipe.zrem(_QUEUE_KEY, job_id)
+        pipe.sadd(_ACTIVE_KEY, job_id)
+        pipe.execute()
+        logger.info("작업 활성화: %s", job_id)
 
     def complete(self, job_id: str) -> None:
         """작업 완료 처리. 활성 목록에서 제거한다."""
@@ -149,11 +132,14 @@ class QueueManager:
 
 
 _queue_manager: QueueManager | None = None
+_queue_manager_lock = threading.Lock()
 
 
 def get_queue_manager(redis_conn: redis.Redis | None = None) -> QueueManager:
     """싱글턴 QueueManager를 반환한다."""
     global _queue_manager  # noqa: PLW0603
     if _queue_manager is None:
-        _queue_manager = QueueManager(redis_conn=redis_conn)
+        with _queue_manager_lock:
+            if _queue_manager is None:
+                _queue_manager = QueueManager(redis_conn=redis_conn)
     return _queue_manager
