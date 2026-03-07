@@ -5,14 +5,51 @@ sparse/dense 포인트 클라우드를 생성한다.
 """
 
 import json
+import logging
 import shutil
 import subprocess
+import time
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
 
+logger = logging.getLogger(__name__)
+
 ProgressCallback = Callable[[str, int, str], None]
 """progress_callback(step_name, percent, message) 시그니처."""
+
+RetryCallback = Callable[[str, int, int, str], None]
+"""retry_callback(step_name, attempt, max_retries, error_message) 시그니처."""
+
+
+@dataclass
+class ColmapRetryConfig:
+    """COLMAP 단계별 재시도 설정."""
+
+    max_retries: int = 3
+    base_delay: float = 5.0
+    backoff_multiplier: float = 2.0
+
+
+# COLMAP 재시도 가능한 일시적 오류 패턴
+_COLMAP_RETRYABLE_PATTERNS = (
+    "out of memory",
+    "gpu",
+    "cuda",
+    "timeout",
+    "timed out",
+    "resource temporarily unavailable",
+    "cannot allocate memory",
+    "killed",
+    "signal 9",
+    "signal 15",
+)
+
+
+def is_colmap_retryable_error(error_message: str) -> bool:
+    """COLMAP 오류가 재시도 가능한 일시적 오류인지 판별한다."""
+    lower = error_message.lower()
+    return any(pattern in lower for pattern in _COLMAP_RETRYABLE_PATTERNS)
 
 
 @dataclass
@@ -38,33 +75,80 @@ def _run_colmap(
     command: str,
     args: list[str],
     timeout: int = 3600,
+    retry_config: ColmapRetryConfig | None = None,
+    retry_callback: RetryCallback | None = None,
 ) -> subprocess.CompletedProcess:
-    """COLMAP CLI 명령을 실행한다."""
+    """COLMAP CLI 명령을 실행한다. 재시도 가능한 오류 시 자동 재시도한다."""
+    max_retries = retry_config.max_retries if retry_config else 0
+    base_delay = retry_config.base_delay if retry_config else 5.0
+    backoff = retry_config.backoff_multiplier if retry_config else 2.0
+
     cmd = ["colmap", command, *args]
-    try:
-        result = subprocess.run(
-            cmd,
-            capture_output=True,
-            text=True,
-            check=False,
-            timeout=timeout,
-        )
-    except subprocess.TimeoutExpired:
-        raise RuntimeError(
-            f"COLMAP {command} 시간 초과 ({timeout}초): "
-            f"이미지 수를 줄이거나 해상도를 낮춰 주세요"
-        )
-    if result.returncode != 0:
-        raise RuntimeError(
-            f"COLMAP {command} 실패 (code {result.returncode}): {result.stderr}"
-        )
-    return result
+    last_error: RuntimeError | None = None
+
+    for attempt in range(max_retries + 1):
+        try:
+            result = subprocess.run(
+                cmd,
+                capture_output=True,
+                text=True,
+                check=False,
+                timeout=timeout,
+            )
+        except subprocess.TimeoutExpired:
+            error_msg = (
+                f"COLMAP {command} 시간 초과 ({timeout}초): "
+                f"이미지 수를 줄이거나 해상도를 낮춰 주세요"
+            )
+            last_error = RuntimeError(error_msg)
+            if attempt < max_retries and is_colmap_retryable_error(error_msg):
+                delay = base_delay * (backoff**attempt)
+                logger.warning(
+                    "COLMAP %s 재시도 %d/%d (%.1f초 후): %s",
+                    command,
+                    attempt + 1,
+                    max_retries,
+                    delay,
+                    error_msg,
+                )
+                if retry_callback:
+                    retry_callback(command, attempt + 1, max_retries, error_msg)
+                time.sleep(delay)
+                continue
+            raise last_error
+
+        if result.returncode != 0:
+            error_msg = (
+                f"COLMAP {command} 실패 (code {result.returncode}): {result.stderr}"
+            )
+            last_error = RuntimeError(error_msg)
+            if attempt < max_retries and is_colmap_retryable_error(error_msg):
+                delay = base_delay * (backoff**attempt)
+                logger.warning(
+                    "COLMAP %s 재시도 %d/%d (%.1f초 후): %s",
+                    command,
+                    attempt + 1,
+                    max_retries,
+                    delay,
+                    error_msg,
+                )
+                if retry_callback:
+                    retry_callback(command, attempt + 1, max_retries, error_msg)
+                time.sleep(delay)
+                continue
+            raise last_error
+
+        return result
+
+    raise last_error  # type: ignore[misc]
 
 
 def feature_extractor(
     image_dir: Path,
     database_path: Path,
     camera_model: str = "SIMPLE_RADIAL",
+    retry_config: ColmapRetryConfig | None = None,
+    retry_callback: RetryCallback | None = None,
 ) -> None:
     """이미지에서 특징점을 추출한다."""
     if not image_dir.is_dir():
@@ -82,10 +166,16 @@ def feature_extractor(
             "--ImageReader.single_camera",
             "1",
         ],
+        retry_config=retry_config,
+        retry_callback=retry_callback,
     )
 
 
-def exhaustive_matcher(database_path: Path) -> None:
+def exhaustive_matcher(
+    database_path: Path,
+    retry_config: ColmapRetryConfig | None = None,
+    retry_callback: RetryCallback | None = None,
+) -> None:
     """특징점 매칭을 수행한다."""
     if not database_path.is_file():
         raise FileNotFoundError(f"데이터베이스를 찾을 수 없습니다: {database_path}")
@@ -93,6 +183,8 @@ def exhaustive_matcher(database_path: Path) -> None:
     _run_colmap(
         "exhaustive_matcher",
         ["--database_path", str(database_path)],
+        retry_config=retry_config,
+        retry_callback=retry_callback,
     )
 
 
@@ -100,6 +192,8 @@ def sparse_reconstructor(
     database_path: Path,
     image_dir: Path,
     output_dir: Path,
+    retry_config: ColmapRetryConfig | None = None,
+    retry_callback: RetryCallback | None = None,
 ) -> None:
     """Sparse 3D 복원을 수행한다."""
     if not database_path.is_file():
@@ -119,6 +213,8 @@ def sparse_reconstructor(
             "--output_path",
             str(output_dir),
         ],
+        retry_config=retry_config,
+        retry_callback=retry_callback,
     )
 
 
@@ -316,6 +412,39 @@ def _parse_reconstruction_stats(
     }
 
 
+def _save_checkpoint(
+    workspace_dir: Path,
+    step: str,
+    steps_completed: list[str],
+) -> None:
+    """체크포인트를 저장한다."""
+    checkpoint = {"last_completed_step": step, "steps_completed": steps_completed}
+    checkpoint_path = workspace_dir / "checkpoint.json"
+    checkpoint_path.write_text(json.dumps(checkpoint, ensure_ascii=False))
+
+
+def _load_checkpoint(workspace_dir: Path) -> dict | None:
+    """저장된 체크포인트를 로드한다."""
+    checkpoint_path = workspace_dir / "checkpoint.json"
+    if not checkpoint_path.exists():
+        return None
+    try:
+        return json.loads(checkpoint_path.read_text())
+    except (json.JSONDecodeError, OSError):
+        return None
+
+
+def _cleanup_workspace(workspace_dir: Path) -> None:
+    """최종 실패 시 작업 공간의 임시 파일을 정리한다."""
+    for pattern in ("*.tmp", "*.log"):
+        for f in workspace_dir.glob(pattern):
+            try:
+                f.unlink()
+            except OSError:
+                pass
+    logger.info("작업 공간 정리 완료: %s", workspace_dir)
+
+
 def reconstruct(
     image_dir: Path,
     workspace_dir: Path,
@@ -327,6 +456,8 @@ def reconstruct(
     gaussian_splatting: bool = False,
     gs_max_iterations: int | None = None,
     progress_callback: ProgressCallback | None = None,
+    retry_config: ColmapRetryConfig | None = None,
+    retry_callback: RetryCallback | None = None,
 ) -> ReconstructionResult:
     """전체 COLMAP SfM 파이프라인을 실행한다.
 
@@ -340,6 +471,8 @@ def reconstruct(
         max_image_size: Dense reconstruction 최대 이미지 크기 (0=제한 없음)
         gaussian_splatting: 3D Gaussian Splatting 학습 실행 여부
         gs_max_iterations: 3DGS 최대 학습 반복 횟수 (None=자동)
+        retry_config: COLMAP 단계별 재시도 설정
+        retry_callback: 재시도 발생 시 호출될 콜백
 
     Returns:
         ReconstructionResult: 복원 결과
@@ -365,27 +498,56 @@ def reconstruct(
     if num_images < 2:
         raise ValueError(f"최소 2장의 이미지가 필요합니다 (현재 {num_images}장)")
 
-    steps_completed = []
+    # 체크포인트 로드 (실패한 단계부터 재개)
+    checkpoint = _load_checkpoint(workspace_dir)
+    completed_set = set(checkpoint["steps_completed"]) if checkpoint else set()
+    steps_completed = list(checkpoint["steps_completed"]) if checkpoint else []
 
     def _notify(step: str, percent: int, message: str) -> None:
         if progress_callback is not None:
             progress_callback(step, percent, message)
 
-    # 1. Feature extraction
-    _notify("feature_matching", 0, "특징점 추출 시작")
-    feature_extractor(image_dir, database_path, camera_model)
-    steps_completed.append("feature_extraction")
+    try:
+        # 1. Feature extraction
+        if "feature_extraction" not in completed_set:
+            _notify("feature_matching", 0, "특징점 추출 시작")
+            feature_extractor(
+                image_dir,
+                database_path,
+                camera_model,
+                retry_config=retry_config,
+                retry_callback=retry_callback,
+            )
+            steps_completed.append("feature_extraction")
+            _save_checkpoint(workspace_dir, "feature_extraction", steps_completed)
 
-    # 2. Feature matching
-    _notify("feature_matching", 50, "특징점 매칭 중")
-    exhaustive_matcher(database_path)
-    steps_completed.append("exhaustive_matching")
-    _notify("feature_matching", 100, "특징점 매칭 완료")
+        # 2. Feature matching
+        if "exhaustive_matching" not in completed_set:
+            _notify("feature_matching", 50, "특징점 매칭 중")
+            exhaustive_matcher(
+                database_path,
+                retry_config=retry_config,
+                retry_callback=retry_callback,
+            )
+            steps_completed.append("exhaustive_matching")
+            _save_checkpoint(workspace_dir, "exhaustive_matching", steps_completed)
+        _notify("feature_matching", 100, "특징점 매칭 완료")
 
-    # 3. Sparse reconstruction
-    _notify("reconstruction", 0, "Sparse 복원 시작")
-    sparse_reconstructor(database_path, image_dir, sparse_dir)
-    steps_completed.append("sparse_reconstruction")
+        # 3. Sparse reconstruction
+        if "sparse_reconstruction" not in completed_set:
+            _notify("reconstruction", 0, "Sparse 복원 시작")
+            sparse_reconstructor(
+                database_path,
+                image_dir,
+                sparse_dir,
+                retry_config=retry_config,
+                retry_callback=retry_callback,
+            )
+            steps_completed.append("sparse_reconstruction")
+            _save_checkpoint(workspace_dir, "sparse_reconstruction", steps_completed)
+    except RuntimeError:
+        _cleanup_workspace(workspace_dir)
+        raise
 
     # 통계 파싱 (1회만 호출)
     stats = _parse_reconstruction_stats(sparse_dir)

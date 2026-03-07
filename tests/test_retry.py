@@ -261,3 +261,136 @@ class TestRetryParamsRestored:
         assert call_kwargs["frame_interval"] == 2.0
         assert call_kwargs["camera_model"] == "PINHOLE"
         assert call_kwargs["dense"] is True
+
+
+def _make_pipeline_mocks(tmp_path, job_id):
+    """run_pipeline 테스트용 공통 mock 설정 헬퍼."""
+    job_dir = tmp_path / "jobs" / job_id
+    # tasks.py: frames_dir = job_dir / "extraction" / "frames"
+    frames_dir = job_dir / "extraction" / "frames"
+    frames_dir.mkdir(parents=True, exist_ok=True)
+
+    mock_job_store = MagicMock()
+    mock_download = MagicMock()
+    mock_download.return_value.title = "Test Video"
+    mock_download.return_value.video_id = "test123"
+    mock_download.return_value.resolution = "1080p"
+    mock_download.return_value.video_path = tmp_path / "video.mp4"
+
+    mock_extract = MagicMock()
+    mock_extract.return_value.total_extracted = 3
+    mock_extract.return_value.total_filtered = 0
+
+    mock_redis = MagicMock()
+
+    return job_dir, mock_job_store, mock_download, mock_extract, mock_redis
+
+
+class TestColmapRetryWebSocketNotification:
+    """COLMAP 재시도 시 WebSocket 알림 테스트."""
+
+    def test_on_colmap_retry_updates_job_and_publishes_progress(self, tmp_path):
+        """COLMAP 재시도 발생 시 job_store와 WebSocket 모두 업데이트된다."""
+        from src.api.tasks import run_pipeline
+        from src.reconstruction.reconstruction import ReconstructionResult
+
+        def mock_reconstruct(*args, **kwargs):
+            retry_cb = kwargs.get("retry_callback")
+            if retry_cb:
+                retry_cb("feature_extractor", 1, 3, "CUDA out of memory")
+            return ReconstructionResult(
+                workspace_dir=tmp_path / "ws",
+                sparse_dir=tmp_path / "ws" / "sparse",
+                num_images=3,
+                num_registered=3,
+                num_points3d=100,
+                steps_completed=[
+                    "feature_extraction",
+                    "exhaustive_matching",
+                    "sparse_reconstruction",
+                ],
+            )
+
+        job_dir, mock_job_store, mock_download, mock_extract, mock_redis = (
+            _make_pipeline_mocks(tmp_path, "colmapretry1")
+        )
+
+        with (
+            patch("src.api.tasks._get_redis", return_value=mock_redis),
+            patch("src.api.tasks.JobStore", return_value=mock_job_store),
+            patch("src.api.tasks._validate_job_path", return_value=job_dir),
+            patch("src.downloader.download_video", mock_download),
+            patch("src.extractor.extract_and_filter", mock_extract),
+            patch("src.reconstruction.reconstruct", side_effect=mock_reconstruct),
+        ):
+            run_pipeline("colmapretry1", "https://youtu.be/dQw4w9WgXcQ")
+
+        # publish 호출 중 colmap_retry 단계가 포함된 것이 있는지 확인
+        retry_calls = [
+            c for c in mock_redis.publish.call_args_list if "colmap_retry" in str(c)
+        ]
+        assert len(retry_calls) >= 1, (
+            "COLMAP 재시도 시 WebSocket 알림이 발행되어야 합니다"
+        )
+
+        # job_store.update가 colmap_retry progress로 호출되었는지 확인
+        update_calls = [str(c) for c in mock_job_store.update.call_args_list]
+        assert any("colmap_retry" in c for c in update_calls), (
+            "COLMAP 재시도 시 job_store.update가 "
+            "colmap_retry 진행 상태로 호출되어야 합니다"
+        )
+
+    def test_on_colmap_retry_progress_contains_required_fields(self, tmp_path):
+        """COLMAP 재시도 WebSocket 메시지에 필수 필드가 포함된다."""
+        import json as json_mod
+
+        from src.api.tasks import run_pipeline
+        from src.reconstruction.reconstruction import ReconstructionResult
+
+        captured_retry_messages = []
+
+        def mock_reconstruct(*args, **kwargs):
+            retry_cb = kwargs.get("retry_callback")
+            if retry_cb:
+                retry_cb("mapper", 2, 3, "GPU device error")
+            return ReconstructionResult(
+                workspace_dir=tmp_path / "ws",
+                sparse_dir=tmp_path / "ws" / "sparse",
+                num_images=3,
+                num_registered=3,
+                num_points3d=50,
+                steps_completed=[
+                    "feature_extraction",
+                    "exhaustive_matching",
+                    "sparse_reconstruction",
+                ],
+            )
+
+        job_dir, mock_job_store, mock_download, mock_extract, mock_redis = (
+            _make_pipeline_mocks(tmp_path, "colmapretry2")
+        )
+
+        def mock_publish(channel, data):
+            msg = json_mod.loads(data)
+            if msg.get("progress", {}).get("stage") == "colmap_retry":
+                captured_retry_messages.append(msg)
+
+        mock_redis.publish.side_effect = mock_publish
+
+        with (
+            patch("src.api.tasks._get_redis", return_value=mock_redis),
+            patch("src.api.tasks.JobStore", return_value=mock_job_store),
+            patch("src.api.tasks._validate_job_path", return_value=job_dir),
+            patch("src.downloader.download_video", mock_download),
+            patch("src.extractor.extract_and_filter", mock_extract),
+            patch("src.reconstruction.reconstruct", side_effect=mock_reconstruct),
+        ):
+            run_pipeline("colmapretry2", "https://youtu.be/dQw4w9WgXcQ")
+
+        assert len(captured_retry_messages) == 1
+        progress = captured_retry_messages[0]["progress"]
+        assert progress["stage"] == "colmap_retry"
+        assert progress["colmap_step"] == "mapper"
+        assert progress["attempt"] == 2
+        assert progress["max_retries"] == 3
+        assert "재시도" in progress["message"]
