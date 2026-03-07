@@ -291,8 +291,8 @@ class TestColmapRetryWebSocketNotification:
 
     def test_on_colmap_retry_updates_job_and_publishes_progress(self, tmp_path):
         """COLMAP 재시도 발생 시 job_store와 WebSocket 모두 업데이트된다."""
-        from src.reconstruction.reconstruction import ReconstructionResult
         from src.api.tasks import run_pipeline
+        from src.reconstruction.reconstruction import ReconstructionResult
 
         def mock_reconstruct(*args, **kwargs):
             retry_cb = kwargs.get("retry_callback")
@@ -304,7 +304,11 @@ class TestColmapRetryWebSocketNotification:
                 num_images=3,
                 num_registered=3,
                 num_points3d=100,
-                steps_completed=["feature_extraction", "exhaustive_matching", "sparse_reconstruction"],
+                steps_completed=[
+                    "feature_extraction",
+                    "exhaustive_matching",
+                    "sparse_reconstruction",
+                ],
             )
 
         job_dir, mock_job_store, mock_download, mock_extract, mock_redis = (
@@ -333,14 +337,16 @@ class TestColmapRetryWebSocketNotification:
         # job_store.update가 colmap_retry progress로 호출되었는지 확인
         update_calls = [str(c) for c in mock_job_store.update.call_args_list]
         assert any("colmap_retry" in c for c in update_calls), (
-            "COLMAP 재시도 시 job_store.update가 colmap_retry 진행 상태로 호출되어야 합니다"
+            "COLMAP 재시도 시 job_store.update가 "
+            "colmap_retry 진행 상태로 호출되어야 합니다"
         )
 
     def test_on_colmap_retry_progress_contains_required_fields(self, tmp_path):
         """COLMAP 재시도 WebSocket 메시지에 필수 필드가 포함된다."""
         import json as json_mod
-        from src.reconstruction.reconstruction import ReconstructionResult
+
         from src.api.tasks import run_pipeline
+        from src.reconstruction.reconstruction import ReconstructionResult
 
         captured_retry_messages = []
 
@@ -354,7 +360,11 @@ class TestColmapRetryWebSocketNotification:
                 num_images=3,
                 num_registered=3,
                 num_points3d=50,
-                steps_completed=["feature_extraction", "exhaustive_matching", "sparse_reconstruction"],
+                steps_completed=[
+                    "feature_extraction",
+                    "exhaustive_matching",
+                    "sparse_reconstruction",
+                ],
             )
 
         job_dir, mock_job_store, mock_download, mock_extract, mock_redis = (
