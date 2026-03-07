@@ -42,6 +42,16 @@ def _reset_rate_limiter():
         stack = getattr(stack, "app", None)
 
 
+def _get_rate_limit() -> int:
+    """미들웨어에 설정된 기본 rate limit(max_requests)를 반환한다."""
+    stack = app.middleware_stack
+    while stack is not None:
+        if isinstance(stack, RateLimitMiddleware):
+            return stack.default_rule.max_requests
+        stack = getattr(stack, "app", None)
+    return 100  # fallback
+
+
 @pytest.fixture(autouse=True)
 def _clear_db():
     _reset_rate_limiter()
@@ -285,7 +295,8 @@ class TestRateLimitIntegration:
 
     def test_rate_limit_returns_429_with_retry_after(self):
         """과도한 요청 시 429와 Retry-After 헤더를 반환한다."""
-        for _ in range(100):
+        rate_limit = _get_rate_limit()
+        for _ in range(rate_limit):
             client.get("/health")
 
         resp = client.get("/health")
@@ -296,9 +307,10 @@ class TestRateLimitIntegration:
     def test_authenticated_requests_share_rate_limit(self):
         """인증된 요청도 전체 rate limit에 포함된다."""
         headers = _headers()
-        _reset_rate_limiter()
+        _reset_rate_limiter()  # _headers() 요청이 카운터를 오염시키지 않도록 재초기화
 
-        for _ in range(100):
+        rate_limit = _get_rate_limit()
+        for _ in range(rate_limit):
             client.get("/api/jobs", headers=headers)
 
         resp = client.get("/api/jobs", headers=headers)
