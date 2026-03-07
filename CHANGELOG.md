@@ -9,6 +9,11 @@
 ## [Unreleased]
 
 ### Added
+- **feat(api):** WebSocket 재연결 및 작업 상태 복구 메커니즘 구현 (#292, PR #293)
+  - `JobProgressManager`에 이벤트 히스토리(시퀀스 번호, 타임스탬프) 추가
+  - 재연결 시 `last_seq` 기반 누락 이벤트 재전송
+  - 클라이언트 Exponential backoff 재연결 (1s → 2s → 4s ... 최대 30s)
+  - `useSyncExternalStore` 기반 연결 상태 관리, 연결 상태 UI 표시
 - **feat(api):** `/health/live` 경량 liveness probe 엔드포인트 추가 (#272, PR #281)
   - 기존 `/health`는 하위 호환 유지
   - Docker Compose healthcheck를 `/health/live` 사용으로 업데이트
@@ -17,6 +22,26 @@
   - `main` 브랜치 push 시 Docker 이미지를 GHCR에 자동 배포
   - 태그 릴리스 시 semver 기반 이미지 태그 자동 생성 (`v1.2.3`, `1.2`)
   - GitHub Actions build cache(`type=gha`)로 빌드 시간 최적화
+- **chore(docker):** 프로덕션 배포 사전 검증 스크립트 구현 (#283, PR #285)
+  - `scripts/validate-prod-config.sh`: .env, JWT secret, Redis 비밀번호, 도메인, Docker, GPU 툴킷, SSL 인증서 7개 항목 자동 검증
+  - `scripts/deploy.sh` 연동 — 검증 실패 시 배포 중단
+
+### Fixed
+- **fix(docker):** Prometheus `HighErrorRate` 알림 규칙 expr 버그 수정 (#284, PR #288)
+  - `sum()` 누락으로 `status` 레이블별 분리 계산되던 문제 해결
+  - `sum(rate(...))` / `sum(rate(...))` 형태로 수정하여 전체 요청 대비 올바른 에러율 계산
+
+### Tests
+- **test(viewer):** 3D 뷰어 E2E 테스트 커버리지 강화 (#291, PR #294)
+  - 카메라 인터랙션(회전/줌/패닝), 에러 핸들링(404/500/네트워크 오류), 작업 플로우(취소/완료) 테스트 추가
+  - E2E 테스트 17개 → 25개 (+8개)
+- **test(docker):** Prometheus 알림 규칙 promtool 단위 테스트 8개 추가 (#284, PR #288)
+  - 4개 알림 규칙 × 발생/미발생 시나리오 검증
+  - CI에 `prometheus-rules` job 추가 (lint + unit test)
+
+### Documentation
+- **docs(docker):** `docs/monitoring.md` 운영 가이드 보강 (#284, PR #288)
+  - 알림 대응 절차, Alertmanager 설정 예시 추가
 
 ---
 
