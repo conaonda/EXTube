@@ -8,6 +8,40 @@
 
 ## [Unreleased]
 
+### Added
+- **feat(api):** `/health/live` 경량 liveness probe 엔드포인트 추가 (#272, PR #281)
+  - 기존 `/health`는 하위 호환 유지
+  - Docker Compose healthcheck를 `/health/live` 사용으로 업데이트
+  - Prometheus instrumentation에서 `/health/live` 제외
+- **chore(ci):** CD 파이프라인 — GHCR Docker 이미지 자동 빌드/푸시 (#271, PR #280)
+  - `main` 브랜치 push 시 Docker 이미지를 GHCR에 자동 배포
+  - 태그 릴리스 시 semver 기반 이미지 태그 자동 생성 (`v1.2.3`, `1.2`)
+  - GitHub Actions build cache(`type=gha`)로 빌드 시간 최적화
+
+---
+
+## [0.46.0] - 2026-03-07
+
+### Sprint 27
+
+### Added
+- **feat(api):** Job 결과물 ZIP 번들 다운로드 엔드포인트 추가 (#273, PR #277)
+  - `GET /api/jobs/{job_id}/download-zip` — 복원 결과 전체를 ZIP으로 다운로드
+  - 파일 크기 2GB 제한, 인증 및 소유권 검증 포함
+- **test(api):** 인증 플로우 및 Job 생명주기 통합 테스트 강화 (#274, PR #278)
+  - 회원가입 → 로그인 → Job 생성 → 완료 전체 플로우 검증
+  - 실패 Job 재시도, 토큰 만료/갱신, max_jobs_per_user 한도 검증
+  - 동적 rate limit 읽기(`_get_rate_limit()`)로 하드코딩 제거
+
+### Fixed
+- **fix(viewer):** App.tsx의 사용하지 않는 eslint-disable 디렉티브 제거 (#267, PR #269)
+
+### Changed
+- **chore(docker):** 프로덕션 Dockerfile 멀티스테이지 빌드 적용 (#268, PR #270)
+  - 프론트엔드 빌드 스테이지 분리 (node:20-alpine)
+  - 개발 의존성 제외한 최소 런타임 이미지 생성
+  - `.dockerignore`에 `.claude/`, `node_modules/`, `dist/` 추가
+
 ---
 
 ## [0.45.0] - 2026-03-07
@@ -376,7 +410,8 @@
   - Docker 개발 환경 (Dockerfile + docker-compose.yml)
   - GitHub Actions CI 워크플로우
 
-[Unreleased]: https://github.com/conaonda/EXTube/compare/v0.45.0...HEAD
+[Unreleased]: https://github.com/conaonda/EXTube/compare/v0.46.0...HEAD
+[0.46.0]: https://github.com/conaonda/EXTube/compare/v0.45.0...v0.46.0
 [0.45.0]: https://github.com/conaonda/EXTube/compare/v0.44.0...v0.45.0
 [0.44.0]: https://github.com/conaonda/EXTube/compare/v0.43.0...v0.44.0
 [0.43.0]: https://github.com/conaonda/EXTube/compare/v0.42.0...v0.43.0
