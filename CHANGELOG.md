@@ -8,6 +8,14 @@
 
 ## [Unreleased]
 
+### Fixed
+- **fix(reconstruction):** COLMAP 재시도 시 원본 예외 traceback 체인 보존 (#300, PR #304)
+  - `raise last_error` → `raise last_error from exc`로 변경하여 원본 `__cause__` 보존
+  - 디버깅 시 실제 원인 예외를 traceback에서 확인 가능
+- **fix(reconstruction):** Dense reconstruction 실패 시 워크스페이스 정리 범위 확장 (#301, PR #304)
+  - Dense 단계 `RuntimeError` 발생 시 `_cleanup_workspace` 호출 추가
+  - Sparse 단계와 동일한 수준의 tmp 파일 정리 보장
+
 ### Added
 - **feat(api):** `/health/live` 경량 liveness probe 엔드포인트 추가 (#272, PR #281)
   - 기존 `/health`는 하위 호환 유지
