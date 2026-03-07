@@ -261,3 +261,50 @@ class TestRetryParamsRestored:
         assert call_kwargs["frame_interval"] == 2.0
         assert call_kwargs["camera_model"] == "PINHOLE"
         assert call_kwargs["dense"] is True
+
+    def test_auto_retry_enqueues_to_queue_manager(self):
+        """재시도 시 QueueManager에 재등록한다."""
+        from src.api.tasks import _handle_pipeline_error
+
+        _insert_job("aabbccddeeff", status="processing")
+        _job_store.update("aabbccddeeff", retry_count=0)
+
+        mock_redis = MagicMock()
+        mock_queue = MagicMock()
+        mock_qm = MagicMock()
+
+        with (
+            patch("src.api.tasks._get_redis", return_value=mock_redis),
+            patch("src.api.tasks.Queue", return_value=mock_queue),
+        ):
+            error = ConnectionError("Connection refused")
+            _handle_pipeline_error(
+                "aabbccddeeff",
+                error,
+                _job_store,
+                mock_redis,
+                qm=mock_qm,
+            )
+
+        mock_qm.enqueue.assert_called_once_with("aabbccddeeff")
+
+    def test_non_retryable_skips_queue_manager_enqueue(self):
+        """재시도 불가 오류 시 QueueManager enqueue를 호출하지 않는다."""
+        from src.api.tasks import _handle_pipeline_error
+
+        _insert_job("aabbccddeeff", status="processing")
+        _job_store.update("aabbccddeeff", retry_count=0)
+
+        mock_redis = MagicMock()
+        mock_qm = MagicMock()
+
+        error = ValueError("invalid input")
+        _handle_pipeline_error(
+            "aabbccddeeff",
+            error,
+            _job_store,
+            mock_redis,
+            qm=mock_qm,
+        )
+
+        mock_qm.enqueue.assert_not_called()

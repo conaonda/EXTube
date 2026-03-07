@@ -65,7 +65,9 @@ class QueueManager:
         position = self._get_position(job_id)
         logger.info(
             "작업 큐 추가: %s (우선순위=%s, 위치=%d)",
-            job_id, priority.value, position,
+            job_id,
+            priority.value,
+            position,
         )
         return position
 
@@ -120,16 +122,10 @@ class QueueManager:
         results = pipe.execute()
 
         pending_count = results[0]
-        active_jobs = {
-            m.decode() if isinstance(m, bytes) else m
-            for m in results[1]
-        }
+        active_jobs = {m.decode() if isinstance(m, bytes) else m for m in results[1]}
         waiting_jobs = []
         for member, score in results[2]:
-            jid = (
-                member.decode() if isinstance(member, bytes)
-                else member
-            )
+            jid = member.decode() if isinstance(member, bytes) else member
             waiting_jobs.append({"job_id": jid, "position": len(waiting_jobs) + 1})
 
         return {
@@ -155,9 +151,9 @@ class QueueManager:
 _queue_manager: QueueManager | None = None
 
 
-def get_queue_manager() -> QueueManager:
+def get_queue_manager(redis_conn: redis.Redis | None = None) -> QueueManager:
     """싱글턴 QueueManager를 반환한다."""
     global _queue_manager  # noqa: PLW0603
     if _queue_manager is None:
-        _queue_manager = QueueManager()
+        _queue_manager = QueueManager(redis_conn=redis_conn)
     return _queue_manager

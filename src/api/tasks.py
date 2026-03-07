@@ -15,6 +15,7 @@ from rq import Queue
 from src.api.config import get_settings
 from src.api.db import JobStore
 from src.api.logging_config import get_logger
+from src.api.queue_manager import get_queue_manager
 
 logger = get_logger(__name__)
 
@@ -83,6 +84,10 @@ def run_pipeline(
 
     job_store = JobStore(db_path=_settings.db_path)
     redis_conn = _get_redis()
+    qm = get_queue_manager(redis_conn)
+
+    # QueueManager에서 작업을 꺼내고 활성 목록에 등록
+    qm.dequeue()
 
     job_store.update(job_id, status="processing")
 
@@ -219,8 +224,10 @@ def run_pipeline(
         )
 
     except Exception as e:
-        _handle_pipeline_error(job_id, e, job_store, redis_conn)
+        _handle_pipeline_error(job_id, e, job_store, redis_conn, qm)
     finally:
+        # 작업 완료/실패 시 QueueManager 활성 목록에서 제거
+        qm.complete(job_id)
         job_store.close()
         redis_conn.close()
 
@@ -230,6 +237,7 @@ def _handle_pipeline_error(
     error: Exception,
     job_store: JobStore,
     redis_conn: redis.Redis,
+    qm: Any = None,
 ) -> None:
     """파이프라인 오류를 처리하고 재시도 가능 여부를 판단한다."""
     job = job_store.get(job_id)
@@ -275,6 +283,10 @@ def _handle_pipeline_error(
             connection=redis_conn,
             default_timeout=_settings.rq_job_timeout,
         )
+
+        # QueueManager에 재등록
+        if qm is not None:
+            qm.enqueue(job_id)
 
         # Job의 원래 파라미터를 DB에서 복원하여 재큐잉
         if job:
