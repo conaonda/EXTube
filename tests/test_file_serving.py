@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
+import io
+import zipfile
 from pathlib import Path
+from unittest.mock import patch
 
 import pytest
 from fastapi.testclient import TestClient
@@ -240,9 +243,6 @@ class TestZipDownloadEndpoint:
         assert resp.headers["content-type"] == "application/zip"
         assert "extube_" in resp.headers["content-disposition"]
 
-        import io
-        import zipfile
-
         zf = zipfile.ZipFile(io.BytesIO(resp.content))
         names = sorted(zf.namelist())
         assert "cameras.txt" in names
@@ -303,3 +303,23 @@ class TestZipDownloadEndpoint:
 
         resp = client.get(f"/api/jobs/{job_id}/download-zip", headers=headers)
         assert resp.status_code == 404
+
+    def test_zip_download_exceeds_size_limit_returns_413(self):
+        """결과물 크기가 크기 제한 초과 시 413을 반환한다."""
+        from src.api.routers import files as files_module
+
+        headers = _auth_header()
+        user = _job_store.users.get_by_username("testuser")
+        job_id = "aabbccddeeff"
+
+        recon_dir = OUTPUT_BASE / job_id / "reconstruction"
+        recon_dir.mkdir(parents=True, exist_ok=True)
+        (recon_dir / "file.bin").write_bytes(b"x")  # 1 byte — 제한(0)보다 큼
+
+        _create_completed_job(user["id"], job_id)
+
+        # _MAX_ZIP_BYTES를 0으로 낮춰 임의의 파일도 제한 초과가 되도록 한다
+        with patch.object(files_module, "_MAX_ZIP_BYTES", 0):
+            resp = client.get(f"/api/jobs/{job_id}/download-zip", headers=headers)
+
+        assert resp.status_code == 413
