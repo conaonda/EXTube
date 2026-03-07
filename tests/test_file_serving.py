@@ -218,3 +218,88 @@ class TestDownloadEndpoint:
 
         resp = client.get(f"/api/jobs/{job_id}/download/../../etc/passwd?token={token}")
         assert resp.status_code in (400, 404)
+
+
+class TestZipDownloadEndpoint:
+    """GET /api/jobs/{job_id}/download-zip 테스트."""
+
+    def test_zip_download_success(self):
+        headers = _auth_header()
+        user = _job_store.users.get_by_username("testuser")
+        job_id = "aabbccddeeff"
+
+        recon_dir = OUTPUT_BASE / job_id / "reconstruction"
+        recon_dir.mkdir(parents=True, exist_ok=True)
+        (recon_dir / "points.ply").write_bytes(b"ply data")
+        (recon_dir / "cameras.txt").write_text("camera info")
+
+        _create_completed_job(user["id"], job_id)
+
+        resp = client.get(f"/api/jobs/{job_id}/download-zip", headers=headers)
+        assert resp.status_code == 200
+        assert resp.headers["content-type"] == "application/zip"
+        assert "extube_" in resp.headers["content-disposition"]
+
+        import io
+        import zipfile
+
+        zf = zipfile.ZipFile(io.BytesIO(resp.content))
+        names = sorted(zf.namelist())
+        assert "cameras.txt" in names
+        assert "points.ply" in names
+
+    def test_zip_download_no_auth_returns_401(self):
+        resp = client.get("/api/jobs/aabbccddeeff/download-zip")
+        assert resp.status_code == 401
+
+    def test_zip_download_other_user_forbidden(self):
+        _auth_header("owner", "Password1!")
+        headers_b = _auth_header("other_user", "Password2!")
+        user_a = _job_store.users.get_by_username("owner")
+        job_id = "aabbccddeeff"
+
+        recon_dir = OUTPUT_BASE / job_id / "reconstruction"
+        recon_dir.mkdir(parents=True, exist_ok=True)
+        (recon_dir / "file.txt").write_text("data")
+
+        _create_completed_job(user_a["id"], job_id)
+
+        resp = client.get(f"/api/jobs/{job_id}/download-zip", headers=headers_b)
+        assert resp.status_code == 403
+
+    def test_zip_download_not_completed_returns_400(self):
+        headers = _auth_header()
+        user = _job_store.users.get_by_username("testuser")
+        job_id = "aabbccddeeff"
+
+        _job_store._conn.execute(
+            """INSERT INTO jobs (id, url, status, user_id, created_at)
+               VALUES (?, ?, 'processing', ?, strftime('%s', 'now'))""",
+            (job_id, "https://www.youtube.com/watch?v=test", user["id"]),
+        )
+        _job_store._conn.commit()
+
+        resp = client.get(f"/api/jobs/{job_id}/download-zip", headers=headers)
+        assert resp.status_code == 400
+
+    def test_zip_download_no_result_dir_returns_404(self):
+        headers = _auth_header()
+        user = _job_store.users.get_by_username("testuser")
+        job_id = "aabbccddeeff"
+        _create_completed_job(user["id"], job_id)
+
+        resp = client.get(f"/api/jobs/{job_id}/download-zip", headers=headers)
+        assert resp.status_code == 404
+
+    def test_zip_download_empty_dir_returns_404(self):
+        headers = _auth_header()
+        user = _job_store.users.get_by_username("testuser")
+        job_id = "aabbccddeeff"
+
+        recon_dir = OUTPUT_BASE / job_id / "reconstruction"
+        recon_dir.mkdir(parents=True, exist_ok=True)
+
+        _create_completed_job(user["id"], job_id)
+
+        resp = client.get(f"/api/jobs/{job_id}/download-zip", headers=headers)
+        assert resp.status_code == 404
