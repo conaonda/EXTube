@@ -182,6 +182,13 @@
   transition: width 0.3s ease;
 }
 
+.job-status-connection {
+  margin-left: 0.5rem;
+  font-size: 0.75rem;
+  color: #d97706;
+  font-weight: 500;
+}
+
 .job-status-detail {
   font-size: 0.8rem;
   color: #1d4ed8;

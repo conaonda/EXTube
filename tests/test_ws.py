@@ -187,9 +187,71 @@ class TestWebSocketEndpoint:
             assert data["status"] == "pending"
 
 
+class TestWebSocketReconnect:
+    """WebSocket 재연결 및 상태 복구 테스트."""
+
+    def test_initial_state_includes_seq(self):
+        """초기 상태 메시지에 seq 필드가 포함된다."""
+        token = _register_and_login()
+        user_id = _get_user_id()
+        _insert_job("reconntest01", user_id=user_id)
+        with client.websocket_connect("/ws/jobs/reconntest01") as ws:
+            _ws_send_auth(ws, token)
+            data = json.loads(ws.receive_text())
+            assert data["status"] == "pending"
+            assert "seq" in data
+            assert "timestamp" in data
+
+    def test_reconnect_with_last_seq_receives_current_state(self):
+        """last_seq를 전송하면 현재 상태를 받는다."""
+        token = _register_and_login()
+        user_id = _get_user_id()
+        _insert_job("reconntest02", user_id=user_id, status=JobStatus.processing)
+        _job_store.update(
+            "reconntest02",
+            progress={"stage": "download", "percent": 30, "message": "다운로드 중"},
+        )
+        with client.websocket_connect("/ws/jobs/reconntest02") as ws:
+            ws.send_text(json.dumps({"token": token, "last_seq": 999}))
+            data = json.loads(ws.receive_text())
+            assert data["status"] == "processing"
+            assert "seq" in data
+            assert data["progress"]["stage"] == "download"
+
+
 class TestJobProgressManager:
     """JobProgressManager 단위 테스트."""
 
     def test_has_connections_initially_false(self):
         """초기 상태에서는 연결이 없다."""
         assert not progress_manager.has_connections("nonexistent")
+
+    def test_event_history_and_seq(self):
+        """브로드캐스트 시 이벤트가 히스토리에 저장되고 시퀀스가 증가한다."""
+        import asyncio
+
+        mgr = progress_manager
+
+        async def _test():
+            progress_10 = {
+                "status": "processing",
+                "progress": {"stage": "download", "percent": 10, "message": "10%"},
+            }
+            progress_50 = {
+                "status": "processing",
+                "progress": {"stage": "download", "percent": 50, "message": "50%"},
+            }
+            await mgr.broadcast("histtest01", progress_10)
+            await mgr.broadcast("histtest01", progress_50)
+
+            assert mgr.get_current_seq("histtest01") == 2
+            events = mgr.get_events_since("histtest01", 0)
+            assert len(events) == 2
+            assert events[0]["seq"] == 1
+            assert events[1]["seq"] == 2
+
+            events_after_1 = mgr.get_events_since("histtest01", 1)
+            assert len(events_after_1) == 1
+            assert events_after_1[0]["seq"] == 2
+
+        asyncio.run(_test())

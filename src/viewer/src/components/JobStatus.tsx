@@ -1,5 +1,5 @@
 import type { Job } from '../api'
-import type { JobProgress } from '../hooks/useJobWebSocket'
+import type { JobProgress, WsConnectionStatus } from '../hooks/useJobWebSocket'
 
 const STATUS_LABELS: Record<string, string> = {
   pending: '대기 중...',
@@ -22,16 +22,25 @@ const PIPELINE_STAGES = ['download', 'extraction', 'feature_matching', 'reconstr
 
 const CANCELLABLE_STATUSES = new Set(['pending', 'processing', 'retrying'])
 
+const CONNECTION_LABELS: Record<WsConnectionStatus, string> = {
+  disconnected: '',
+  connecting: '연결 중...',
+  connected: '',
+  reconnecting: '재연결 중...',
+}
+
 interface JobStatusProps {
   job: Job
   progress?: JobProgress | null
   onCancel?: () => void
   cancelling?: boolean
+  connectionStatus?: WsConnectionStatus
 }
 
-export default function JobStatus({ job, progress, onCancel, cancelling }: JobStatusProps) {
+export default function JobStatus({ job, progress, onCancel, cancelling, connectionStatus }: JobStatusProps) {
   const label = STATUS_LABELS[job.status] ?? job.status
   const showCancel = onCancel && CANCELLABLE_STATUSES.has(job.status)
+  const connLabel = connectionStatus ? CONNECTION_LABELS[connectionStatus] : ''
 
   return (
     <div
@@ -41,6 +50,11 @@ export default function JobStatus({ job, progress, onCancel, cancelling }: JobSt
       aria-live="polite"
     >
       <strong>{label}</strong>
+      {connLabel && (
+        <span className="job-status-connection" aria-label={connLabel}>
+          {connLabel}
+        </span>
+      )}
       {progress && job.status === 'processing' && (
         <div className="job-status-progress">
           <div className="job-status-stages">
