@@ -1,5 +1,6 @@
 """COLMAP 3D 복원 파이프라인 테스트."""
 
+import subprocess
 from pathlib import Path
 from unittest.mock import MagicMock, call, patch
 
@@ -695,6 +696,30 @@ class TestRunColmapRetry:
         ]
 
 
+class TestRunColmapTracebackPreservation:
+    """_run_colmap이 원본 traceback을 보존하는지 테스트."""
+
+    @patch("src.reconstruction.reconstruction.subprocess.run")
+    def test_timeout_preserves_cause(self, mock_run):
+        """TimeoutExpired의 원본 예외가 __cause__에 보존된다."""
+        timeout_exc = subprocess.TimeoutExpired(cmd=["colmap"], timeout=10)
+        mock_run.side_effect = timeout_exc
+        with pytest.raises(RuntimeError) as exc_info:
+            _run_colmap("mapper", [])
+        assert exc_info.value.__cause__ is timeout_exc
+
+    @patch("src.reconstruction.reconstruction.time.sleep")
+    @patch("src.reconstruction.reconstruction.subprocess.run")
+    def test_max_retries_preserves_cause(self, mock_run, mock_sleep):
+        """최대 재시도 소진 시에도 __cause__가 보존된다."""
+        timeout_exc = subprocess.TimeoutExpired(cmd=["colmap"], timeout=10)
+        mock_run.side_effect = timeout_exc
+        config = ColmapRetryConfig(max_retries=1, base_delay=0.01)
+        with pytest.raises(RuntimeError) as exc_info:
+            _run_colmap("mapper", [], retry_config=config)
+        assert exc_info.value.__cause__ is timeout_exc
+
+
 class TestCheckpoint:
     """체크포인트 저장/로드 테스트."""
 
@@ -724,6 +749,60 @@ class TestCleanupWorkspace:
         assert not (tmp_path / "temp.tmp").exists()
         assert not (tmp_path / "output.log").exists()
         assert (tmp_path / "important.ply").exists()
+
+
+class TestDenseCleanup:
+    """Dense 단계 실패 시 cleanup 호출 테스트."""
+
+    @patch("src.reconstruction.reconstruction.subprocess.run")
+    @patch("src.reconstruction.reconstruction._run_colmap")
+    def test_dense_failure_triggers_cleanup(
+        self,
+        mock_colmap,
+        mock_subprocess,
+        tmp_path,
+    ):
+        """Dense reconstruction 실패 시 _cleanup_workspace가 호출된다."""
+        image_dir = tmp_path / "images"
+        image_dir.mkdir()
+        for i in range(3):
+            (image_dir / f"frame_{i:06d}.jpg").write_bytes(b"\xff" * 100)
+        workspace = tmp_path / "workspace"
+
+        call_count = 0
+
+        def side_effect(command, args, **kwargs):
+            nonlocal call_count
+            call_count += 1
+            if command == "feature_extractor":
+                db = workspace / "database.db"
+                db.parent.mkdir(parents=True, exist_ok=True)
+                db.touch()
+            elif command == "mapper":
+                model_dir = workspace / "sparse" / "0"
+                model_dir.mkdir(parents=True, exist_ok=True)
+                (model_dir / "images.bin").write_bytes(b"\x00" * 1024)
+                (model_dir / "points3D.bin").write_bytes(b"\x00" * 640)
+                (model_dir / "cameras.bin").write_bytes(b"\x00" * 64)
+            elif command == "image_undistorter":
+                raise RuntimeError("Dense reconstruction 실패")
+            return MagicMock(returncode=0)
+
+        mock_colmap.side_effect = side_effect
+        mock_subprocess.return_value = MagicMock(
+            returncode=0,
+            stdout="Registered images = 3\nPoints 3D = 50\n",
+        )
+
+        # tmp 파일 생성 (cleanup 대상)
+        workspace.mkdir(parents=True, exist_ok=True)
+        (workspace / "temp.tmp").write_text("tmp")
+
+        with pytest.raises(RuntimeError, match="Dense reconstruction 실패"):
+            reconstruct(image_dir, workspace, dense=True)
+
+        # cleanup이 호출되어 tmp 파일이 제거되었는지 확인
+        assert not (workspace / "temp.tmp").exists()
 
 
 class TestReconstructCheckpointResume:
