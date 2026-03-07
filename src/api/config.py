@@ -47,6 +47,11 @@ class Settings(BaseSettings):
     retry_base_delay: int = 10  # 초 (지수 백오프: 10s, 30s, 90s)
     retry_backoff_multiplier: int = 3
 
+    # COLMAP 단계별 재시도 설정
+    colmap_max_retries: int = 3
+    colmap_retry_base_delay: float = 5.0  # 초
+    colmap_retry_backoff_multiplier: float = 2.0
+
     # 환경 설정
     environment: str = "development"  # development | production
 

@@ -20,7 +20,7 @@ logger = get_logger(__name__)
 
 _settings = get_settings()
 
-# 재시도 가능한 오류 패턴 (일시적 네트워크/외부 서비스 오류)
+# 재시도 가능한 오류 패턴 (일시적 네트워크/외부 서비스 오류 및 COLMAP 일시적 오류)
 _RETRYABLE_ERROR_PATTERNS = (
     "timeout",
     "timed out",
@@ -39,6 +39,11 @@ _RETRYABLE_ERROR_PATTERNS = (
     "urlopen error",
     "incompleteread",
     "remotedisconnected",
+    "out of memory",
+    "cuda",
+    "gpu",
+    "cannot allocate memory",
+    "killed",
 )
 
 
@@ -80,6 +85,7 @@ def run_pipeline(
     from src.downloader import download_video
     from src.extractor import extract_and_filter
     from src.reconstruction import reconstruct
+    from src.reconstruction.reconstruction import ColmapRetryConfig
 
     job_store = JobStore(db_path=_settings.db_path)
     redis_conn = _get_redis()
@@ -147,6 +153,31 @@ def run_pipeline(
         stage_start = time.monotonic()
         reconstruction_dir = job_dir / "reconstruction"
         frames_dir = extraction_dir / "frames"
+
+        colmap_retry_config = ColmapRetryConfig(
+            max_retries=_settings.colmap_max_retries,
+            base_delay=_settings.colmap_retry_base_delay,
+            backoff_multiplier=_settings.colmap_retry_backoff_multiplier,
+        )
+
+        def _on_colmap_retry(
+            step: str, attempt: int, max_retries: int, error_msg: str
+        ) -> None:
+            retry_progress = {
+                "stage": "colmap_retry",
+                "percent": 0,
+                "message": f"COLMAP {step} 재시도 {attempt}/{max_retries}: {error_msg}",
+                "colmap_step": step,
+                "attempt": attempt,
+                "max_retries": max_retries,
+            }
+            job_store.update(job_id, progress=retry_progress)
+            _publish_progress(
+                redis_conn,
+                job_id,
+                {"status": "processing", "progress": retry_progress},
+            )
+
         reconstruction_result = reconstruct(
             frames_dir,
             reconstruction_dir,
@@ -156,6 +187,8 @@ def run_pipeline(
             gaussian_splatting=gaussian_splatting,
             gs_max_iterations=gs_max_iterations,
             progress_callback=_update_progress,
+            retry_config=colmap_retry_config,
+            retry_callback=_on_colmap_retry,
         )
         reconstruction_duration = round(time.monotonic() - stage_start, 2)
         logger.info(
