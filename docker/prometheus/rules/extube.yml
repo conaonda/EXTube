@@ -12,8 +12,8 @@ groups:
 
       - alert: HighErrorRate
         expr: >
-          rate(http_requests_total{status=~"5.."}[5m])
-          / rate(http_requests_total[5m]) > 0.1
+          sum(rate(http_requests_total{status=~"5.."}[5m]))
+          / sum(rate(http_requests_total[5m])) > 0.1
         for: 5m
         labels:
           severity: critical
