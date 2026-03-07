@@ -9,6 +9,10 @@
 ## [Unreleased]
 
 ### Fixed
+- **fix(reconstruction):** COLMAP 재시도 시 timeout 값 점진적 증가 (#302, PR #307)
+  - `ColmapRetryConfig`에 `timeout_multiplier`(기본 1.5) 필드 추가
+  - 재시도마다 `timeout * (timeout_multiplier ** attempt)`로 timeout 자동 증가
+  - 동일 timeout으로 반복 실패하는 문제 해결
 - **fix(reconstruction):** COLMAP 재시도 시 원본 예외 traceback 체인 보존 (#300, PR #304)
   - `raise last_error` → `raise last_error from exc`로 변경하여 원본 `__cause__` 보존
   - 디버깅 시 실제 원인 예외를 traceback에서 확인 가능
