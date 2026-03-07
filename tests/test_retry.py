@@ -13,7 +13,7 @@ from src.api.tasks import is_retryable_error
 
 client = TestClient(app)
 
-_TEST_USER_ID = "test_user_id1"
+_TEST_USER_ID = "retry_test_user_id"
 _TEST_USERNAME = "retryuser"
 _TEST_PASSWORD = "Test1234!"
 
@@ -30,18 +30,23 @@ def _reset_rate_limiter():
 @pytest.fixture(autouse=True)
 def _clear_jobs():
     _reset_rate_limiter()
+    _job_store._conn.execute("DELETE FROM refresh_tokens")
     _job_store._conn.execute("DELETE FROM jobs")
     _job_store._conn.execute("DELETE FROM users")
-    _job_store._conn.execute("DELETE FROM refresh_tokens")
     _job_store._conn.commit()
     from passlib.context import CryptContext
 
     pwd = CryptContext(schemes=["bcrypt"], deprecated="auto")
-    _job_store.users.create(_TEST_USER_ID, _TEST_USERNAME, pwd.hash(_TEST_PASSWORD))
+    _job_store._conn.execute(
+        "INSERT OR REPLACE INTO users (id, username, hashed_password, created_at)"
+        " VALUES (?, ?, ?, ?)",
+        (_TEST_USER_ID, _TEST_USERNAME, pwd.hash(_TEST_PASSWORD), 0),
+    )
+    _job_store._conn.commit()
     yield
+    _job_store._conn.execute("DELETE FROM refresh_tokens")
     _job_store._conn.execute("DELETE FROM jobs")
     _job_store._conn.execute("DELETE FROM users")
-    _job_store._conn.execute("DELETE FROM refresh_tokens")
     _job_store._conn.commit()
 
 
@@ -105,6 +110,7 @@ class TestIsRetryableError:
         assert not is_retryable_error(PermissionError("Access denied"))
 
 
+@pytest.mark.usefixtures("mock_queue_manager")
 class TestManualRetryEndpoint:
     """POST /api/jobs/{id}/retry 테스트."""
 
@@ -179,6 +185,7 @@ class TestRetryingStatus:
         assert resp.status_code == 409
 
 
+@pytest.mark.usefixtures("mock_queue_manager")
 class TestRetryParamsRestored:
     """재시도 시 원래 파라미터가 복원되는지 테스트."""
 
@@ -262,6 +269,53 @@ class TestRetryParamsRestored:
         assert call_kwargs["camera_model"] == "PINHOLE"
         assert call_kwargs["dense"] is True
 
+    def test_auto_retry_enqueues_to_queue_manager(self):
+        """재시도 시 QueueManager에 재등록한다."""
+        from src.api.tasks import _handle_pipeline_error
+
+        _insert_job("aabbccddeeff", status="processing")
+        _job_store.update("aabbccddeeff", retry_count=0)
+
+        mock_redis = MagicMock()
+        mock_queue = MagicMock()
+        mock_qm = MagicMock()
+
+        with (
+            patch("src.api.tasks._get_redis", return_value=mock_redis),
+            patch("src.api.tasks.Queue", return_value=mock_queue),
+        ):
+            error = ConnectionError("Connection refused")
+            _handle_pipeline_error(
+                "aabbccddeeff",
+                error,
+                _job_store,
+                mock_redis,
+                qm=mock_qm,
+            )
+
+        mock_qm.enqueue.assert_called_once_with("aabbccddeeff")
+
+    def test_non_retryable_skips_queue_manager_enqueue(self):
+        """재시도 불가 오류 시 QueueManager enqueue를 호출하지 않는다."""
+        from src.api.tasks import _handle_pipeline_error
+
+        _insert_job("aabbccddeeff", status="processing")
+        _job_store.update("aabbccddeeff", retry_count=0)
+
+        mock_redis = MagicMock()
+        mock_qm = MagicMock()
+
+        error = ValueError("invalid input")
+        _handle_pipeline_error(
+            "aabbccddeeff",
+            error,
+            _job_store,
+            mock_redis,
+            qm=mock_qm,
+        )
+
+        mock_qm.enqueue.assert_not_called()
+
 
 def _make_pipeline_mocks(tmp_path, job_id):
     """run_pipeline 테스트용 공통 mock 설정 헬퍼."""
@@ -286,6 +340,7 @@ def _make_pipeline_mocks(tmp_path, job_id):
     return job_dir, mock_job_store, mock_download, mock_extract, mock_redis
 
 
+@pytest.mark.usefixtures("mock_queue_manager")
 class TestColmapRetryWebSocketNotification:
     """COLMAP 재시도 시 WebSocket 알림 테스트."""
 

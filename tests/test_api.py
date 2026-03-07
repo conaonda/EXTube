@@ -95,6 +95,7 @@ def _insert_job(job_id: str, **fields) -> None:
         _job_store.update(job_id, **update_fields)
 
 
+@pytest.mark.usefixtures("mock_queue_manager")
 class TestCreateJob:
     """POST /api/jobs 테스트."""
 
@@ -162,6 +163,7 @@ class TestCreateJob:
         assert "'" not in detail
 
 
+@pytest.mark.usefixtures("mock_queue_manager")
 class TestJobConcurrencyLimit:
     """사용자별 동시 실행 제한 테스트."""
 
@@ -243,6 +245,7 @@ class TestJobConcurrencyLimit:
         assert resp.status_code == 429
 
 
+@pytest.mark.usefixtures("mock_queue_manager")
 class TestDuplicateUrlPrevention:
     """동일 URL 중복 처리 방지 테스트."""
 
@@ -302,6 +305,7 @@ class TestDuplicateUrlPrevention:
         mock_enqueue.assert_called_once()
 
 
+@pytest.mark.usefixtures("mock_queue_manager")
 class TestGetJob:
     """GET /api/jobs/{id} 테스트."""
 
@@ -493,6 +497,7 @@ class TestDeleteJob:
         assert not job_dir.exists()
 
 
+@pytest.mark.usefixtures("mock_queue_manager")
 class TestCancelJob:
     """POST /api/jobs/{id}/cancel 테스트."""
 
@@ -1134,6 +1139,7 @@ class TestMetrics:
         assert "extube_active_jobs 2.0" in body
 
 
+@pytest.mark.usefixtures("mock_queue_manager")
 class TestVideoValidation:
     """영상 길이/크기 제한 테스트."""
 
