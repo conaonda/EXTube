@@ -33,6 +33,9 @@ class Settings(BaseSettings):
     rq_queue_name: str = "gpu"
     rq_job_timeout: int = 3 * 60 * 60  # 3시간
 
+    # 작업 큐 동시실행 제한
+    queue_max_concurrent: int = 1  # 동시 실행 작업 수 제한
+
     # 경로
     output_base_dir: Path = Path("data/jobs")
     db_path: Path = Path("data/jobs.db")
@@ -46,6 +49,11 @@ class Settings(BaseSettings):
     max_retries: int = 3
     retry_base_delay: int = 10  # 초 (지수 백오프: 10s, 30s, 90s)
     retry_backoff_multiplier: int = 3
+
+    # COLMAP 단계별 재시도 설정
+    colmap_max_retries: int = 3
+    colmap_retry_base_delay: float = 5.0  # 초
+    colmap_retry_backoff_multiplier: float = 2.0
 
     # 환경 설정
     environment: str = "development"  # development | production

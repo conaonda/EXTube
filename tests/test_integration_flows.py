@@ -99,6 +99,7 @@ def _create_job(headers):
         )
 
 
+@pytest.mark.usefixtures("mock_queue_manager")
 class TestAuthJobLifecycle:
     """등록 → 로그인 → 작업 생성 → 상태 조회 → 완료 → 결과 확인 전체 플로우."""
 
@@ -225,6 +226,7 @@ class TestTokenExpiry:
         assert resp.status_code == 401
 
 
+@pytest.mark.usefixtures("mock_queue_manager")
 class TestMaxJobsPerUser:
     """사용자별 동시 실행 제한 통합 테스트."""
 

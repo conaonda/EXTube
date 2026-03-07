@@ -15,12 +15,13 @@ from rq import Queue
 from src.api.config import get_settings
 from src.api.db import JobStore
 from src.api.logging_config import get_logger
+from src.api.queue_manager import get_queue_manager
 
 logger = get_logger(__name__)
 
 _settings = get_settings()
 
-# 재시도 가능한 오류 패턴 (일시적 네트워크/외부 서비스 오류)
+# 재시도 가능한 오류 패턴 (일시적 네트워크/외부 서비스 오류 및 COLMAP 일시적 오류)
 _RETRYABLE_ERROR_PATTERNS = (
     "timeout",
     "timed out",
@@ -39,6 +40,11 @@ _RETRYABLE_ERROR_PATTERNS = (
     "urlopen error",
     "incompleteread",
     "remotedisconnected",
+    "out of memory",
+    "cuda",
+    "gpu",
+    "cannot allocate memory",
+    "killed",
 )
 
 
@@ -80,9 +86,14 @@ def run_pipeline(
     from src.downloader import download_video
     from src.extractor import extract_and_filter
     from src.reconstruction import reconstruct
+    from src.reconstruction.reconstruction import ColmapRetryConfig
 
     job_store = JobStore(db_path=_settings.db_path)
     redis_conn = _get_redis()
+    qm = get_queue_manager(redis_conn)
+
+    # RQ가 실행 중인 작업을 활성 목록에 등록
+    qm.activate(job_id)
 
     job_store.update(job_id, status="processing")
 
@@ -147,6 +158,31 @@ def run_pipeline(
         stage_start = time.monotonic()
         reconstruction_dir = job_dir / "reconstruction"
         frames_dir = extraction_dir / "frames"
+
+        colmap_retry_config = ColmapRetryConfig(
+            max_retries=_settings.colmap_max_retries,
+            base_delay=_settings.colmap_retry_base_delay,
+            backoff_multiplier=_settings.colmap_retry_backoff_multiplier,
+        )
+
+        def _on_colmap_retry(
+            step: str, attempt: int, max_retries: int, error_msg: str
+        ) -> None:
+            retry_progress = {
+                "stage": "colmap_retry",
+                "percent": 0,
+                "message": f"COLMAP {step} 재시도 {attempt}/{max_retries}: {error_msg}",
+                "colmap_step": step,
+                "attempt": attempt,
+                "max_retries": max_retries,
+            }
+            job_store.update(job_id, progress=retry_progress)
+            _publish_progress(
+                redis_conn,
+                job_id,
+                {"status": "processing", "progress": retry_progress},
+            )
+
         reconstruction_result = reconstruct(
             frames_dir,
             reconstruction_dir,
@@ -156,6 +192,8 @@ def run_pipeline(
             gaussian_splatting=gaussian_splatting,
             gs_max_iterations=gs_max_iterations,
             progress_callback=_update_progress,
+            retry_config=colmap_retry_config,
+            retry_callback=_on_colmap_retry,
         )
         reconstruction_duration = round(time.monotonic() - stage_start, 2)
         logger.info(
@@ -219,8 +257,10 @@ def run_pipeline(
         )
 
     except Exception as e:
-        _handle_pipeline_error(job_id, e, job_store, redis_conn)
+        _handle_pipeline_error(job_id, e, job_store, redis_conn, qm)
     finally:
+        # 작업 완료/실패 시 QueueManager 활성 목록에서 제거
+        qm.complete(job_id)
         job_store.close()
         redis_conn.close()
 
@@ -230,6 +270,7 @@ def _handle_pipeline_error(
     error: Exception,
     job_store: JobStore,
     redis_conn: redis.Redis,
+    qm: Any = None,
 ) -> None:
     """파이프라인 오류를 처리하고 재시도 가능 여부를 판단한다."""
     job = job_store.get(job_id)
@@ -275,6 +316,10 @@ def _handle_pipeline_error(
             connection=redis_conn,
             default_timeout=_settings.rq_job_timeout,
         )
+
+        # QueueManager에 재등록
+        if qm is not None:
+            qm.enqueue(job_id)
 
         # Job의 원래 파라미터를 DB에서 복원하여 재큐잉
         if job:

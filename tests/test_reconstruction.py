@@ -1,16 +1,22 @@
 """COLMAP 3D 복원 파이프라인 테스트."""
 
+import subprocess
 from pathlib import Path
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock, call, patch
 
 import pytest
 from src.reconstruction.reconstruction import (
+    ColmapRetryConfig,
     ReconstructionResult,
+    _cleanup_workspace,
     _count_ply_points,
+    _load_checkpoint,
     _run_colmap,
+    _save_checkpoint,
     exhaustive_matcher,
     feature_extractor,
     image_undistorter,
+    is_colmap_retryable_error,
     patch_match_stereo,
     potree_convert,
     reconstruct,
@@ -67,6 +73,8 @@ class TestFeatureExtractor:
                 "--ImageReader.single_camera",
                 "1",
             ],
+            retry_config=None,
+            retry_callback=None,
         )
 
 
@@ -88,6 +96,8 @@ class TestExhaustiveMatcher:
         mock_colmap.assert_called_once_with(
             "exhaustive_matcher",
             ["--database_path", str(db)],
+            retry_config=None,
+            retry_callback=None,
         )
 
 
@@ -151,7 +161,7 @@ class TestReconstruct:
         workspace = tmp_path / "workspace"
 
         # COLMAP 명령 실행을 시뮬레이션
-        def side_effect(command, args):
+        def side_effect(command, args, **kwargs):
             if command == "feature_extractor":
                 db = workspace / "database.db"
                 db.parent.mkdir(parents=True, exist_ok=True)
@@ -197,7 +207,7 @@ class TestReconstruct:
             (image_dir / f"frame_{i:06d}.jpg").write_bytes(b"\xff" * 100)
         workspace = tmp_path / "workspace"
 
-        def side_effect(command, args):
+        def side_effect(command, args, **kwargs):
             if command == "feature_extractor":
                 db = workspace / "database.db"
                 db.parent.mkdir(parents=True, exist_ok=True)
@@ -245,7 +255,7 @@ class TestReconstruct:
             (image_dir / f"frame_{i:06d}.jpg").write_bytes(b"\xff" * 100)
         workspace = tmp_path / "workspace"
 
-        def side_effect(command, args):
+        def side_effect(command, args, **kwargs):
             if command == "feature_extractor":
                 db = workspace / "database.db"
                 db.parent.mkdir(parents=True, exist_ok=True)
@@ -292,7 +302,7 @@ class TestReconstruct:
             (image_dir / f"frame_{i:06d}.jpg").write_bytes(b"\xff" * 100)
         workspace = tmp_path / "workspace"
 
-        def side_effect(command, args):
+        def side_effect(command, args, **kwargs):
             if command == "feature_extractor":
                 db = workspace / "database.db"
                 db.parent.mkdir(parents=True, exist_ok=True)
@@ -337,9 +347,11 @@ class TestReconstruct:
         assert result.num_dense_points == 50000
 
         # 메타데이터에 dense 정보 포함 확인
-        import json
+        import json as json_mod
 
-        metadata = json.loads((workspace / "reconstruction_metadata.json").read_text())
+        metadata = json_mod.loads(
+            (workspace / "reconstruction_metadata.json").read_text()
+        )
         assert metadata["num_dense_points"] == 50000
 
     @patch("src.reconstruction.reconstruction.subprocess.run")
@@ -352,7 +364,7 @@ class TestReconstruct:
             (image_dir / f"frame_{i:06d}.jpg").write_bytes(b"\xff" * 100)
         workspace = tmp_path / "workspace"
 
-        def side_effect(command, args):
+        def side_effect(command, args, **kwargs):
             if command == "feature_extractor":
                 db = workspace / "database.db"
                 db.parent.mkdir(parents=True, exist_ok=True)
@@ -546,6 +558,44 @@ class TestRunColmapTimeout:
             _run_colmap("mapper", ["--arg", "val"])
 
 
+class TestRunColmapTimeoutIncrease:
+    """재시도 시 timeout 값이 점진적으로 증가하는지 테스트."""
+
+    @patch("src.reconstruction.reconstruction.time.sleep")
+    @patch("src.reconstruction.reconstruction.subprocess.run")
+    def test_timeout_increases_on_retry(self, mock_run, mock_sleep):
+        """재시도마다 timeout이 timeout_multiplier만큼 증가한다."""
+        mock_run.return_value = MagicMock(returncode=1, stderr="CUDA out of memory")
+        config = ColmapRetryConfig(
+            max_retries=2,
+            base_delay=0.01,
+            timeout_multiplier=2.0,
+        )
+        with pytest.raises(RuntimeError, match="CUDA out of memory"):
+            _run_colmap("mapper", [], timeout=100, retry_config=config)
+        assert mock_run.call_count == 3
+        timeouts = [c.kwargs["timeout"] for c in mock_run.call_args_list]
+        assert timeouts == [100, 200, 400]
+
+    @patch("src.reconstruction.reconstruction.time.sleep")
+    @patch("src.reconstruction.reconstruction.subprocess.run")
+    def test_default_timeout_multiplier(self, mock_run, mock_sleep):
+        """기본 timeout_multiplier(1.5)가 적용된다."""
+        mock_run.return_value = MagicMock(returncode=1, stderr="out of memory")
+        config = ColmapRetryConfig(max_retries=1, base_delay=0.01)
+        with pytest.raises(RuntimeError):
+            _run_colmap("mapper", [], timeout=100, retry_config=config)
+        timeouts = [c.kwargs["timeout"] for c in mock_run.call_args_list]
+        assert timeouts == [100, 150]
+
+    @patch("src.reconstruction.reconstruction.subprocess.run")
+    def test_no_retry_config_uses_original_timeout(self, mock_run):
+        """retry_config 없이 호출 시 원래 timeout 사용."""
+        mock_run.return_value = MagicMock(returncode=0, stdout="ok", stderr="")
+        _run_colmap("mapper", [], timeout=600)
+        assert mock_run.call_args.kwargs["timeout"] == 600
+
+
 class TestReconstructZeroPoints:
     """Sparse reconstruction 후 포인트 0개 실패 테스트."""
 
@@ -574,3 +624,263 @@ class TestReconstructZeroPoints:
 
         with pytest.raises(RuntimeError, match="3D 포인트를 생성하지 못했습니다"):
             reconstruct(image_dir, workspace)
+
+
+class TestIsColmapRetryableError:
+    """is_colmap_retryable_error 판별 테스트."""
+
+    def test_out_of_memory(self):
+        assert is_colmap_retryable_error("CUDA out of memory") is True
+
+    def test_gpu_error(self):
+        assert is_colmap_retryable_error("GPU device error") is True
+
+    def test_killed(self):
+        assert is_colmap_retryable_error("Process killed by signal 9") is True
+
+    def test_normal_error(self):
+        assert is_colmap_retryable_error("Invalid camera model") is False
+
+    def test_timeout(self):
+        assert is_colmap_retryable_error("Connection timed out") is True
+
+
+class TestRunColmapRetry:
+    """_run_colmap 재시도 로직 테스트."""
+
+    @patch("src.reconstruction.reconstruction.time.sleep")
+    @patch("src.reconstruction.reconstruction.subprocess.run")
+    def test_retry_on_retryable_error(self, mock_run, mock_sleep):
+        """재시도 가능한 오류 시 재시도 후 성공."""
+        mock_run.side_effect = [
+            MagicMock(returncode=1, stderr="CUDA out of memory"),
+            MagicMock(returncode=0, stdout="ok", stderr=""),
+        ]
+        config = ColmapRetryConfig(
+            max_retries=2,
+            base_delay=1.0,
+            backoff_multiplier=2.0,
+        )
+        result = _run_colmap("mapper", ["--arg", "val"], retry_config=config)
+        assert result.returncode == 0
+        assert mock_run.call_count == 2
+        mock_sleep.assert_called_once_with(1.0)
+
+    @patch("src.reconstruction.reconstruction.time.sleep")
+    @patch("src.reconstruction.reconstruction.subprocess.run")
+    def test_no_retry_on_non_retryable_error(self, mock_run, mock_sleep):
+        """재시도 불가능한 오류 시 즉시 실패."""
+        mock_run.return_value = MagicMock(returncode=1, stderr="Invalid camera model")
+        config = ColmapRetryConfig(max_retries=3)
+        with pytest.raises(RuntimeError, match="Invalid camera model"):
+            _run_colmap("mapper", ["--arg", "val"], retry_config=config)
+        assert mock_run.call_count == 1
+        mock_sleep.assert_not_called()
+
+    @patch("src.reconstruction.reconstruction.time.sleep")
+    @patch("src.reconstruction.reconstruction.subprocess.run")
+    def test_max_retries_exhausted(self, mock_run, mock_sleep):
+        """최대 재시도 횟수 초과 시 실패."""
+        mock_run.return_value = MagicMock(returncode=1, stderr="CUDA out of memory")
+        config = ColmapRetryConfig(
+            max_retries=2,
+            base_delay=1.0,
+            backoff_multiplier=2.0,
+        )
+        with pytest.raises(RuntimeError, match="CUDA out of memory"):
+            _run_colmap("mapper", ["--arg", "val"], retry_config=config)
+        assert mock_run.call_count == 3  # 1 initial + 2 retries
+        assert mock_sleep.call_count == 2
+
+    @patch("src.reconstruction.reconstruction.time.sleep")
+    @patch("src.reconstruction.reconstruction.subprocess.run")
+    def test_retry_callback_called(self, mock_run, mock_sleep):
+        """재시도 시 callback이 호출되는지 확인."""
+        mock_run.side_effect = [
+            MagicMock(returncode=1, stderr="GPU device error"),
+            MagicMock(returncode=0, stdout="ok", stderr=""),
+        ]
+        config = ColmapRetryConfig(max_retries=2, base_delay=1.0)
+        callback = MagicMock()
+        _run_colmap(
+            "feature_extractor",
+            ["--arg", "val"],
+            retry_config=config,
+            retry_callback=callback,
+        )
+        callback.assert_called_once()
+        args = callback.call_args[0]
+        assert args[0] == "feature_extractor"
+        assert args[1] == 1  # attempt
+        assert args[2] == 2  # max_retries
+
+    @patch("src.reconstruction.reconstruction.time.sleep")
+    @patch("src.reconstruction.reconstruction.subprocess.run")
+    def test_exponential_backoff(self, mock_run, mock_sleep):
+        """지수 백오프 지연 확인."""
+        mock_run.return_value = MagicMock(returncode=1, stderr="out of memory")
+        config = ColmapRetryConfig(
+            max_retries=3,
+            base_delay=2.0,
+            backoff_multiplier=3.0,
+        )
+        with pytest.raises(RuntimeError):
+            _run_colmap("mapper", [], retry_config=config)
+        # delays: 2.0, 6.0, 18.0
+        assert mock_sleep.call_args_list == [
+            call(2.0),
+            call(6.0),
+            call(18.0),
+        ]
+
+
+class TestRunColmapTracebackPreservation:
+    """_run_colmap이 원본 traceback을 보존하는지 테스트."""
+
+    @patch("src.reconstruction.reconstruction.subprocess.run")
+    def test_timeout_preserves_cause(self, mock_run):
+        """TimeoutExpired의 원본 예외가 __cause__에 보존된다."""
+        timeout_exc = subprocess.TimeoutExpired(cmd=["colmap"], timeout=10)
+        mock_run.side_effect = timeout_exc
+        with pytest.raises(RuntimeError) as exc_info:
+            _run_colmap("mapper", [])
+        assert exc_info.value.__cause__ is timeout_exc
+
+    @patch("src.reconstruction.reconstruction.time.sleep")
+    @patch("src.reconstruction.reconstruction.subprocess.run")
+    def test_max_retries_preserves_cause(self, mock_run, mock_sleep):
+        """최대 재시도 소진 시에도 __cause__가 보존된다."""
+        timeout_exc = subprocess.TimeoutExpired(cmd=["colmap"], timeout=10)
+        mock_run.side_effect = timeout_exc
+        config = ColmapRetryConfig(max_retries=1, base_delay=0.01)
+        with pytest.raises(RuntimeError) as exc_info:
+            _run_colmap("mapper", [], retry_config=config)
+        assert exc_info.value.__cause__ is timeout_exc
+
+
+class TestCheckpoint:
+    """체크포인트 저장/로드 테스트."""
+
+    def test_save_and_load(self, tmp_path):
+        _save_checkpoint(tmp_path, "feature_extraction", ["feature_extraction"])
+        cp = _load_checkpoint(tmp_path)
+        assert cp is not None
+        assert cp["last_completed_step"] == "feature_extraction"
+        assert cp["steps_completed"] == ["feature_extraction"]
+
+    def test_load_missing(self, tmp_path):
+        assert _load_checkpoint(tmp_path) is None
+
+    def test_load_corrupt(self, tmp_path):
+        (tmp_path / "checkpoint.json").write_text("not json")
+        assert _load_checkpoint(tmp_path) is None
+
+
+class TestCleanupWorkspace:
+    """_cleanup_workspace 테스트."""
+
+    def test_removes_tmp_and_log_files(self, tmp_path):
+        (tmp_path / "temp.tmp").write_text("tmp")
+        (tmp_path / "output.log").write_text("log")
+        (tmp_path / "important.ply").write_text("keep")
+        _cleanup_workspace(tmp_path)
+        assert not (tmp_path / "temp.tmp").exists()
+        assert not (tmp_path / "output.log").exists()
+        assert (tmp_path / "important.ply").exists()
+
+
+class TestDenseCleanup:
+    """Dense 단계 실패 시 cleanup 호출 테스트."""
+
+    @patch("src.reconstruction.reconstruction.subprocess.run")
+    @patch("src.reconstruction.reconstruction._run_colmap")
+    def test_dense_failure_triggers_cleanup(
+        self,
+        mock_colmap,
+        mock_subprocess,
+        tmp_path,
+    ):
+        """Dense reconstruction 실패 시 _cleanup_workspace가 호출된다."""
+        image_dir = tmp_path / "images"
+        image_dir.mkdir()
+        for i in range(3):
+            (image_dir / f"frame_{i:06d}.jpg").write_bytes(b"\xff" * 100)
+        workspace = tmp_path / "workspace"
+
+        call_count = 0
+
+        def side_effect(command, args, **kwargs):
+            nonlocal call_count
+            call_count += 1
+            if command == "feature_extractor":
+                db = workspace / "database.db"
+                db.parent.mkdir(parents=True, exist_ok=True)
+                db.touch()
+            elif command == "mapper":
+                model_dir = workspace / "sparse" / "0"
+                model_dir.mkdir(parents=True, exist_ok=True)
+                (model_dir / "images.bin").write_bytes(b"\x00" * 1024)
+                (model_dir / "points3D.bin").write_bytes(b"\x00" * 640)
+                (model_dir / "cameras.bin").write_bytes(b"\x00" * 64)
+            elif command == "image_undistorter":
+                raise RuntimeError("Dense reconstruction 실패")
+            return MagicMock(returncode=0)
+
+        mock_colmap.side_effect = side_effect
+        mock_subprocess.return_value = MagicMock(
+            returncode=0,
+            stdout="Registered images = 3\nPoints 3D = 50\n",
+        )
+
+        # tmp 파일 생성 (cleanup 대상)
+        workspace.mkdir(parents=True, exist_ok=True)
+        (workspace / "temp.tmp").write_text("tmp")
+
+        with pytest.raises(RuntimeError, match="Dense reconstruction 실패"):
+            reconstruct(image_dir, workspace, dense=True)
+
+        # cleanup이 호출되어 tmp 파일이 제거되었는지 확인
+        assert not (workspace / "temp.tmp").exists()
+
+
+class TestReconstructCheckpointResume:
+    """체크포인트에서 재개하는 테스트."""
+
+    @patch("src.reconstruction.reconstruction.subprocess.run")
+    @patch("src.reconstruction.reconstruction._run_colmap")
+    def test_resume_from_checkpoint(self, mock_colmap, mock_subprocess, tmp_path):
+        """feature_extraction이 완료된 체크포인트에서 재개."""
+        image_dir = tmp_path / "images"
+        image_dir.mkdir()
+        for i in range(3):
+            (image_dir / f"frame_{i:06d}.jpg").write_bytes(b"\xff" * 100)
+        workspace = tmp_path / "workspace"
+        workspace.mkdir(parents=True)
+
+        # 이전 실행에서 feature_extraction까지 완료된 상태 시뮬레이션
+        db = workspace / "database.db"
+        db.touch()
+        _save_checkpoint(workspace, "feature_extraction", ["feature_extraction"])
+
+        def side_effect(command, args, **kwargs):
+            if command == "mapper":
+                model_dir = workspace / "sparse" / "0"
+                model_dir.mkdir(parents=True, exist_ok=True)
+                (model_dir / "images.bin").write_bytes(b"\x00" * 512)
+                (model_dir / "points3D.bin").write_bytes(b"\x00" * 128)
+            return MagicMock(returncode=0)
+
+        mock_colmap.side_effect = side_effect
+        mock_subprocess.return_value = MagicMock(
+            returncode=0,
+            stdout="Registered images = 3\nPoints 3D = 50\n",
+        )
+
+        result = reconstruct(image_dir, workspace, export_ply=False)
+
+        # feature_extractor는 호출되지 않아야 함 (체크포인트에서 건너뜀)
+        colmap_commands = [c[0][0] for c in mock_colmap.call_args_list]
+        assert "feature_extractor" not in colmap_commands
+        assert "feature_extraction" in result.steps_completed
+        assert "exhaustive_matching" in result.steps_completed
+        assert "sparse_reconstruction" in result.steps_completed
