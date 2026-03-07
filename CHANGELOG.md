@@ -18,6 +18,9 @@
   - 태그 릴리스 시 semver 기반 이미지 태그 자동 생성 (`v1.2.3`, `1.2`)
   - GitHub Actions build cache(`type=gha`)로 빌드 시간 최적화
 
+### Known Issues
+- **fix(api):** ZIP 번들 다운로드(`GET /api/jobs/{job_id}/download-zip`)가 전체 ZIP을 메모리에 적재하는 구조로 대용량 결과물에서 OOM 위험 (#286)
+
 ---
 
 ## [0.46.0] - 2026-03-07
