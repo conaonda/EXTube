@@ -186,6 +186,7 @@ class TestProtectedEndpoints:
         assert resp.status_code == 200
 
 
+@pytest.mark.usefixtures("mock_queue_manager")
 class TestJobIsolation:
     """사용자별 Job 격리 테스트."""
 

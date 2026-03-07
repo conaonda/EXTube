@@ -5,7 +5,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 
-@pytest.fixture(autouse=True)
+@pytest.fixture
 def mock_queue_manager():
     """QueueManager 싱글턴을 mock하여 Redis 연결을 방지한다."""
     mock_qm = MagicMock()

@@ -63,6 +63,7 @@ def _reset_limiter():
     _job_store._conn.commit()
 
 
+@pytest.mark.usefixtures("mock_queue_manager")
 class TestRateLimitMiddleware:
     """Rate limiting 미들웨어 동작 검증."""
 

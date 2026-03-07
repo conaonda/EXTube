@@ -110,6 +110,7 @@ class TestIsRetryableError:
         assert not is_retryable_error(PermissionError("Access denied"))
 
 
+@pytest.mark.usefixtures("mock_queue_manager")
 class TestManualRetryEndpoint:
     """POST /api/jobs/{id}/retry 테스트."""
 
@@ -184,6 +185,7 @@ class TestRetryingStatus:
         assert resp.status_code == 409
 
 
+@pytest.mark.usefixtures("mock_queue_manager")
 class TestRetryParamsRestored:
     """재시도 시 원래 파라미터가 복원되는지 테스트."""
 
@@ -338,6 +340,7 @@ def _make_pipeline_mocks(tmp_path, job_id):
     return job_dir, mock_job_store, mock_download, mock_extract, mock_redis
 
 
+@pytest.mark.usefixtures("mock_queue_manager")
 class TestColmapRetryWebSocketNotification:
     """COLMAP 재시도 시 WebSocket 알림 테스트."""
 
