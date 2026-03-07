@@ -54,8 +54,14 @@ def _update_job_gauges() -> None:
 
 @router.get("/health", summary="서버 생존 확인")
 def health() -> dict[str, str]:
-    """기본 헬스체크 — 서버 생존 확인 (liveness probe)."""
+    """기본 헬스체크 — 하위 호환 유지."""
     return {"status": "ok"}
+
+
+@router.get("/health/live", summary="Liveness probe")
+def health_live() -> dict[str, str]:
+    """프로세스 생존 확인 — 경량 liveness probe."""
+    return {"status": "alive"}
 
 
 @router.get("/health/ready", summary="준비 상태 확인")
