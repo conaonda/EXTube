@@ -41,14 +41,17 @@ docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d
 ### 엔드포인트 활용
 
 현재 구현된 엔드포인트:
-- `GET /health` — 서버 생존 확인 (liveness)
-- `GET /health/ready` — DB 연결 + COLMAP 바이너리 확인 (readiness)
+- `GET /health/live` — 서버 생존 확인 (liveness probe, 경량) — **Docker Compose healthcheck 권장**
+- `GET /health` — `/health/live`와 동일 (하위 호환 유지)
+- `GET /health/ready` — DB 연결 + COLMAP 바이너리 확인 (readiness probe)
+
+> **참고:** Prometheus 메트릭 수집에서 `/health/live`는 제외되어 불필요한 메트릭 노이즈를 줄입니다.
 
 ### Docker Compose 헬스체크 설정
 
 ```yaml
 healthcheck:
-  test: ["CMD", "curl", "-f", "http://localhost:8000/health/ready"]
+  test: ["CMD", "curl", "-f", "http://localhost:8000/health/live"]
   interval: 30s
   timeout: 10s
   retries: 3
@@ -351,8 +354,8 @@ docker compose -f docker-compose.yml -f docker-compose.prod.yml --profile gpu up
 ### 실행 확인
 
 - [ ] `scripts/deploy.sh` 실행
-- [ ] `GET /health` 응답 200 확인
-- [ ] `GET /health/ready` 응답 200 확인
+- [ ] `GET /health/live` 응답 200 확인 (liveness probe)
+- [ ] `GET /health/ready` 응답 200 확인 (readiness probe)
 - [ ] 로그에 에러 없는지 확인 (`docker compose logs -f`)
 
 ---
