@@ -161,6 +161,53 @@ class TestCreateJob:
         assert "<script>" not in detail
         assert "'" not in detail
 
+    @patch("src.api.routers.jobs._enqueue_job")
+    @patch("src.api.routers.jobs.fetch_video_metadata", return_value=_MOCK_METADATA)
+    def test_high_priority_job_created(self, mock_meta, mock_enqueue):
+        """priority=high으로 작업을 생성한다."""
+        headers = _get_auth_headers()
+        resp = client.post(
+            "/api/jobs",
+            json={"url": "https://youtu.be/dQw4w9WgXcQ", "priority": "high"},
+            headers=headers,
+        )
+        assert resp.status_code == 201
+        mock_enqueue.assert_called_once()
+        _, _, call_kwargs = mock_enqueue.call_args[0][0], mock_enqueue.call_args[0][1], mock_enqueue.call_args[1] if mock_enqueue.call_args[1] else {}
+        # _enqueue_job이 priority 인자를 받았는지 확인
+        from src.api.queue_manager import JobPriority
+        assert mock_enqueue.call_args[1].get("priority") == JobPriority.high or mock_enqueue.call_args[0][2] == JobPriority.high
+
+    @patch("src.api.routers.jobs._enqueue_job")
+    @patch("src.api.routers.jobs.fetch_video_metadata", return_value=_MOCK_METADATA)
+    def test_invalid_priority_returns_422(self, mock_meta, mock_enqueue):
+        """유효하지 않은 priority 값은 422를 반환한다."""
+        headers = _get_auth_headers()
+        resp = client.post(
+            "/api/jobs",
+            json={"url": "https://youtu.be/dQw4w9WgXcQ", "priority": "ultra"},
+            headers=headers,
+        )
+        assert resp.status_code == 422
+
+    @patch("src.api.routers.jobs.get_queue_manager")
+    @patch("src.api.routers.jobs._enqueue_job")
+    @patch("src.api.routers.jobs.fetch_video_metadata", return_value=_MOCK_METADATA)
+    def test_queue_position_in_response(self, mock_meta, mock_enqueue, mock_get_qm):
+        """큐 위치가 응답에 포함된다."""
+        from unittest.mock import MagicMock
+        mock_qm = MagicMock()
+        mock_qm.get_position.return_value = 2
+        mock_get_qm.return_value = mock_qm
+        headers = _get_auth_headers()
+        resp = client.post(
+            "/api/jobs",
+            json={"url": "https://youtu.be/dQw4w9WgXcQ"},
+            headers=headers,
+        )
+        assert resp.status_code == 201
+        assert resp.json()["queue_position"] == 2
+
 
 class TestJobConcurrencyLimit:
     """사용자별 동시 실행 제한 테스트."""
@@ -1251,3 +1298,60 @@ class TestVideoValidation:
             headers=headers,
         )
         assert resp.status_code == 201
+
+
+class TestQueueStatus:
+    """GET /api/queue/status 테스트."""
+
+    @patch("src.api.routers.jobs.get_queue_manager")
+    def test_queue_status_returns_correct_structure(self, mock_get_qm):
+        """큐 상태가 올바른 구조로 반환된다."""
+        from unittest.mock import MagicMock
+
+        mock_qm = MagicMock()
+        mock_qm.get_status.return_value = {
+            "max_concurrent": 1,
+            "active_count": 0,
+            "active_jobs": [],
+            "pending_count": 2,
+            "waiting_jobs": [
+                {"job_id": "aabb11223344", "position": 1},
+                {"job_id": "ccdd55667788", "position": 2},
+            ],
+        }
+        mock_get_qm.return_value = mock_qm
+        headers = _get_auth_headers()
+        resp = client.get("/api/queue/status", headers=headers)
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["max_concurrent"] == 1
+        assert data["active_count"] == 0
+        assert data["pending_count"] == 2
+        assert len(data["waiting_jobs"]) == 2
+        assert data["waiting_jobs"][0]["position"] == 1
+
+    @patch("src.api.routers.jobs.get_queue_manager")
+    def test_queue_status_with_active_jobs(self, mock_get_qm):
+        """활성 작업이 있을 때 큐 상태를 반환한다."""
+        from unittest.mock import MagicMock
+
+        mock_qm = MagicMock()
+        mock_qm.get_status.return_value = {
+            "max_concurrent": 2,
+            "active_count": 1,
+            "active_jobs": ["aabbccddeeff"],
+            "pending_count": 0,
+            "waiting_jobs": [],
+        }
+        mock_get_qm.return_value = mock_qm
+        headers = _get_auth_headers()
+        resp = client.get("/api/queue/status", headers=headers)
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["active_count"] == 1
+        assert "aabbccddeeff" in data["active_jobs"]
+
+    def test_queue_status_requires_auth(self):
+        """인증 없이 큐 상태 조회는 401을 반환한다."""
+        resp = client.get("/api/queue/status")
+        assert resp.status_code == 401

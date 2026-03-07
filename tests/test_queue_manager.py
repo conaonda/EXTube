@@ -141,6 +141,64 @@ class TestGetActiveCount:
         assert qm.get_active_count() == 3
 
 
+class TestGetPositionEdgeCases:
+    """get_position 엣지케이스 테스트."""
+
+    def test_first_in_queue_returns_one(self, qm, mock_redis):
+        """rank=0 (큐 첫 번째)이면 get_position은 1을 반환한다."""
+        mock_redis.zrank.return_value = 0
+        assert qm.get_position("job123") == 1
+
+    def test_not_in_queue_returns_none(self, qm, mock_redis):
+        """큐에 없으면 get_position은 None을 반환한다."""
+        mock_redis.zrank.return_value = None
+        assert qm.get_position("job123") is None
+
+    def test_internal_get_position_returns_zero_when_absent(self, qm, mock_redis):
+        """_get_position은 미존재 시 0을 반환한다 (public get_position은 None)."""
+        mock_redis.zrank.return_value = None
+        assert qm._get_position("job123") == 0
+
+
+class TestGetQueueManagerSingleton:
+    """get_queue_manager 싱글턴 동작 테스트."""
+
+    def test_returns_same_instance(self, mock_redis):
+        """동일 인스턴스를 반환한다."""
+        import src.api.queue_manager as qm_module
+
+        qm_module._queue_manager = None
+        with patch("src.api.queue_manager._settings") as mock_settings:
+            mock_settings.redis_url = "redis://localhost:6379"
+            mock_settings.queue_max_concurrent = 1
+            with patch("src.api.queue_manager.redis.from_url", return_value=mock_redis):
+                from src.api.queue_manager import get_queue_manager
+
+                inst1 = get_queue_manager()
+                inst2 = get_queue_manager()
+                assert inst1 is inst2
+        qm_module._queue_manager = None
+
+    def test_updates_connection_when_provided(self, mock_redis):
+        """redis_conn 전달 시 기존 싱글턴의 연결을 갱신한다."""
+        import src.api.queue_manager as qm_module
+
+        qm_module._queue_manager = None
+        with patch("src.api.queue_manager._settings") as mock_settings:
+            mock_settings.redis_url = "redis://localhost:6379"
+            mock_settings.queue_max_concurrent = 1
+            with patch("src.api.queue_manager.redis.from_url", return_value=mock_redis):
+                from unittest.mock import MagicMock
+
+                from src.api.queue_manager import get_queue_manager
+
+                inst = get_queue_manager()
+                new_conn = MagicMock()
+                get_queue_manager(redis_conn=new_conn)
+                assert inst._conn is new_conn
+        qm_module._queue_manager = None
+
+
 class TestJobPriority:
     """JobPriority enum 테스트."""
 
