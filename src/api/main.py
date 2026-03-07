@@ -121,7 +121,7 @@ register_exception_handlers(app)
 
 # Prometheus 메트릭
 _instrumentator = Instrumentator(
-    excluded_handlers=["/metrics", "/health", "/health/ready"],
+    excluded_handlers=["/metrics", "/health", "/health/live", "/health/ready"],
 ).instrument(app)
 
 

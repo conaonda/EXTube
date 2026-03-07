@@ -703,13 +703,19 @@ def _parse_sse_events(response) -> list[dict]:
 
 
 class TestHealth:
-    """GET /health, /health/ready 테스트."""
+    """GET /health, /health/live, /health/ready 테스트."""
 
     def test_health_ok(self):
         """기본 헬스체크는 200을 반환한다."""
         resp = client.get("/health")
         assert resp.status_code == 200
         assert resp.json() == {"status": "ok"}
+
+    def test_health_live(self):
+        """liveness probe는 200과 alive 상태를 반환한다."""
+        resp = client.get("/health/live")
+        assert resp.status_code == 200
+        assert resp.json() == {"status": "alive"}
 
     def test_health_ready_db_ok(self):
         """/health/ready는 DB가 정상이면 checks에 database=ok를 포함한다."""

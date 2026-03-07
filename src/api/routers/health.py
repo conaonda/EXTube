@@ -52,13 +52,19 @@ def _update_job_gauges() -> None:
         QUEUE_LENGTH_GAUGE.set(0)
 
 
-@router.get("/health", summary="서버 생존 확인")
+@router.get("/health", summary="서버 상태 확인")
 def health() -> dict[str, str]:
-    """기본 헬스체크 — 서버 생존 확인 (liveness probe)."""
+    """기본 헬스체크 — 하위 호환용."""
     return {"status": "ok"}
 
 
-@router.get("/health/ready", summary="준비 상태 확인")
+@router.get("/health/live", summary="생존 확인 (liveness probe)")
+def health_live() -> dict[str, str]:
+    """Liveness probe — 프로세스 생존 확인 (경량)."""
+    return {"status": "alive"}
+
+
+@router.get("/health/ready", summary="준비 상태 확인 (readiness probe)")
 def health_ready() -> dict[str, Any]:
     """준비 상태 확인 — DB, Redis, COLMAP (readiness probe)."""
     store = get_job_store()
