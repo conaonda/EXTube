@@ -15,6 +15,7 @@ from jose import JWTError, jwt
 from src.api.config import get_settings
 from src.api.db import JobStore
 from src.api.logging_config import get_logger
+from src.api.queue_manager import get_queue_manager
 
 logger = get_logger(__name__)
 
@@ -264,4 +265,12 @@ def _build_initial_state(job: dict[str, Any], seq: int) -> dict[str, Any]:
         initial["result"] = job.get("result")
     elif job["status"] == "failed":
         initial["error"] = job.get("error")
+    elif job["status"] == "pending":
+        try:
+            qm = get_queue_manager()
+            position = qm.get_position(job["id"])
+            if position is not None:
+                initial["queue_position"] = position
+        except Exception:
+            pass
     return initial

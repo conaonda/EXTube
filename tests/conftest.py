@@ -24,5 +24,6 @@ def mock_queue_manager():
     with (
         patch("src.api.routers.jobs.get_queue_manager", return_value=mock_qm),
         patch("src.api.tasks.get_queue_manager", return_value=mock_qm),
+        patch("src.api.ws.get_queue_manager", return_value=mock_qm),
     ):
         yield mock_qm
