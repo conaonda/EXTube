@@ -15,6 +15,7 @@ from rq import Queue
 from src.api.config import get_settings
 from src.api.db import JobStore
 from src.api.logging_config import get_logger
+from src.api.queue_manager import QueueManager, get_queue_manager
 
 logger = get_logger(__name__)
 
@@ -89,11 +90,12 @@ def run_pipeline(
 
     job_store = JobStore(db_path=_settings.db_path)
     redis_conn = _get_redis()
+    qm = get_queue_manager(redis_conn)
 
-    job_store.update(job_id, status="processing")
+    # QueueManager에 활성 작업으로 등록
+    qm.dequeue(job_id)
 
     output_base_dir = _settings.output_base_dir
-    job_dir = _validate_job_path(job_id, output_base_dir)
 
     def _update_progress(stage: str, percent: int, message: str) -> None:
         progress = {"stage": stage, "percent": percent, "message": message}
@@ -103,6 +105,8 @@ def run_pipeline(
         )
 
     try:
+        job_store.update(job_id, status="processing")
+        job_dir = _validate_job_path(job_id, output_base_dir)
         pipeline_start = time.monotonic()
 
         # 1. 다운로드
@@ -252,8 +256,10 @@ def run_pipeline(
         )
 
     except Exception as e:
-        _handle_pipeline_error(job_id, e, job_store, redis_conn)
+        _handle_pipeline_error(job_id, e, job_store, redis_conn, qm)
     finally:
+        # 작업 완료/실패 시 active set에서 제거
+        qm.complete(job_id)
         job_store.close()
         redis_conn.close()
 
@@ -263,6 +269,7 @@ def _handle_pipeline_error(
     error: Exception,
     job_store: JobStore,
     redis_conn: redis.Redis,
+    qm: QueueManager | None = None,
 ) -> None:
     """파이프라인 오류를 처리하고 재시도 가능 여부를 판단한다."""
     job = job_store.get(job_id)

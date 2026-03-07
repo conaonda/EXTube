@@ -26,6 +26,7 @@ from src.api.dependencies import (
     sanitize_for_message,
     validate_job_path,
 )
+from src.api.queue_manager import get_queue_manager
 from src.api.tasks import run_pipeline
 from src.downloader import fetch_video_metadata, validate_youtube_url
 
@@ -443,6 +444,10 @@ def cancel_job(
             status_code=409,
             detail=f"취소할 수 없는 상태입니다 (현재: {job['status']})",
         )
+
+    # QueueManager active set에서 제거
+    qm = get_queue_manager()
+    qm.cancel(job_id)
 
     conn = _get_redis_connection()
     try:
