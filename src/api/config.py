@@ -33,6 +33,9 @@ class Settings(BaseSettings):
     rq_queue_name: str = "gpu"
     rq_job_timeout: int = 3 * 60 * 60  # 3시간
 
+    # 작업 큐 동시실행 제한
+    queue_max_concurrent: int = 1  # 동시 실행 작업 수 제한
+
     # 경로
     output_base_dir: Path = Path("data/jobs")
     db_path: Path = Path("data/jobs.db")
