@@ -13,7 +13,7 @@ from src.api.tasks import is_retryable_error
 
 client = TestClient(app)
 
-_TEST_USER_ID = "test_user_id1"
+_TEST_USER_ID = "retry_test_user_id"
 _TEST_USERNAME = "retryuser"
 _TEST_PASSWORD = "Test1234!"
 
@@ -30,18 +30,23 @@ def _reset_rate_limiter():
 @pytest.fixture(autouse=True)
 def _clear_jobs():
     _reset_rate_limiter()
+    _job_store._conn.execute("DELETE FROM refresh_tokens")
     _job_store._conn.execute("DELETE FROM jobs")
     _job_store._conn.execute("DELETE FROM users")
-    _job_store._conn.execute("DELETE FROM refresh_tokens")
     _job_store._conn.commit()
     from passlib.context import CryptContext
 
     pwd = CryptContext(schemes=["bcrypt"], deprecated="auto")
-    _job_store.users.create(_TEST_USER_ID, _TEST_USERNAME, pwd.hash(_TEST_PASSWORD))
+    _job_store._conn.execute(
+        "INSERT OR REPLACE INTO users (id, username, hashed_password, created_at)"
+        " VALUES (?, ?, ?, ?)",
+        (_TEST_USER_ID, _TEST_USERNAME, pwd.hash(_TEST_PASSWORD), 0),
+    )
+    _job_store._conn.commit()
     yield
+    _job_store._conn.execute("DELETE FROM refresh_tokens")
     _job_store._conn.execute("DELETE FROM jobs")
     _job_store._conn.execute("DELETE FROM users")
-    _job_store._conn.execute("DELETE FROM refresh_tokens")
     _job_store._conn.commit()
 
 

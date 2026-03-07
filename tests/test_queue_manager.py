@@ -301,7 +301,7 @@ class TestRunPipelineQueueManagerIntegration:
         self, tmp_path, mock_queue_manager
     ):
         """예외 발생 시에도 finally 블록에서 qm.complete(job_id)를 호출한다."""
-        from unittest.mock import MagicMock, patch
+        from unittest.mock import patch
 
         from src.api.tasks import run_pipeline
 
