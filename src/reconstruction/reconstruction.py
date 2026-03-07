@@ -95,12 +95,13 @@ def _run_colmap(
                 check=False,
                 timeout=timeout,
             )
-        except subprocess.TimeoutExpired:
+        except subprocess.TimeoutExpired as exc:
             error_msg = (
                 f"COLMAP {command} 시간 초과 ({timeout}초): "
                 f"이미지 수를 줄이거나 해상도를 낮춰 주세요"
             )
             last_error = RuntimeError(error_msg)
+            last_error.__cause__ = exc
             if attempt < max_retries and is_colmap_retryable_error(error_msg):
                 delay = base_delay * (backoff**attempt)
                 logger.warning(
@@ -115,7 +116,7 @@ def _run_colmap(
                     retry_callback(command, attempt + 1, max_retries, error_msg)
                 time.sleep(delay)
                 continue
-            raise last_error
+            raise last_error from exc
 
         if result.returncode != 0:
             error_msg = (
@@ -140,7 +141,7 @@ def _run_colmap(
 
         return result
 
-    raise last_error  # type: ignore[misc]
+    raise last_error from last_error.__cause__  # type: ignore[misc]
 
 
 def feature_extractor(
@@ -575,24 +576,28 @@ def reconstruct(
     if dense:
         model_dir = stats.get("model_dir")
         if model_dir:
-            dense_ws = workspace_dir / "dense"
-            image_undistorter(
-                image_dir,
-                Path(model_dir),
-                dense_ws,
-                max_image_size=max_image_size,
-            )
-            steps_completed.append("image_undistortion")
+            try:
+                dense_ws = workspace_dir / "dense"
+                image_undistorter(
+                    image_dir,
+                    Path(model_dir),
+                    dense_ws,
+                    max_image_size=max_image_size,
+                )
+                steps_completed.append("image_undistortion")
 
-            patch_match_stereo(dense_ws, max_image_size=max_image_size)
-            steps_completed.append("patch_match_stereo")
+                patch_match_stereo(dense_ws, max_image_size=max_image_size)
+                steps_completed.append("patch_match_stereo")
 
-            dense_ply_path = workspace_dir / "dense_points.ply"
-            stereo_fusion(dense_ws, dense_ply_path)
-            steps_completed.append("stereo_fusion")
+                dense_ply_path = workspace_dir / "dense_points.ply"
+                stereo_fusion(dense_ws, dense_ply_path)
+                steps_completed.append("stereo_fusion")
 
-            dense_dir = dense_ws
-            num_dense_points = _count_ply_points(dense_ply_path)
+                dense_dir = dense_ws
+                num_dense_points = _count_ply_points(dense_ply_path)
+            except RuntimeError:
+                _cleanup_workspace(workspace_dir)
+                raise
 
     # 8. 3D Gaussian Splatting 학습
     gs_ply_path = None
