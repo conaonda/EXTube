@@ -558,6 +558,44 @@ class TestRunColmapTimeout:
             _run_colmap("mapper", ["--arg", "val"])
 
 
+class TestRunColmapTimeoutIncrease:
+    """재시도 시 timeout 값이 점진적으로 증가하는지 테스트."""
+
+    @patch("src.reconstruction.reconstruction.time.sleep")
+    @patch("src.reconstruction.reconstruction.subprocess.run")
+    def test_timeout_increases_on_retry(self, mock_run, mock_sleep):
+        """재시도마다 timeout이 timeout_multiplier만큼 증가한다."""
+        mock_run.return_value = MagicMock(returncode=1, stderr="CUDA out of memory")
+        config = ColmapRetryConfig(
+            max_retries=2,
+            base_delay=0.01,
+            timeout_multiplier=2.0,
+        )
+        with pytest.raises(RuntimeError, match="CUDA out of memory"):
+            _run_colmap("mapper", [], timeout=100, retry_config=config)
+        assert mock_run.call_count == 3
+        timeouts = [c.kwargs["timeout"] for c in mock_run.call_args_list]
+        assert timeouts == [100, 200, 400]
+
+    @patch("src.reconstruction.reconstruction.time.sleep")
+    @patch("src.reconstruction.reconstruction.subprocess.run")
+    def test_default_timeout_multiplier(self, mock_run, mock_sleep):
+        """기본 timeout_multiplier(1.5)가 적용된다."""
+        mock_run.return_value = MagicMock(returncode=1, stderr="out of memory")
+        config = ColmapRetryConfig(max_retries=1, base_delay=0.01)
+        with pytest.raises(RuntimeError):
+            _run_colmap("mapper", [], timeout=100, retry_config=config)
+        timeouts = [c.kwargs["timeout"] for c in mock_run.call_args_list]
+        assert timeouts == [100, 150]
+
+    @patch("src.reconstruction.reconstruction.subprocess.run")
+    def test_no_retry_config_uses_original_timeout(self, mock_run):
+        """retry_config 없이 호출 시 원래 timeout 사용."""
+        mock_run.return_value = MagicMock(returncode=0, stdout="ok", stderr="")
+        _run_colmap("mapper", [], timeout=600)
+        assert mock_run.call_args.kwargs["timeout"] == 600
+
+
 class TestReconstructZeroPoints:
     """Sparse reconstruction 후 포인트 0개 실패 테스트."""
 

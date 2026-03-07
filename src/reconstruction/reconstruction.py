@@ -29,6 +29,7 @@ class ColmapRetryConfig:
     max_retries: int = 3
     base_delay: float = 5.0
     backoff_multiplier: float = 2.0
+    timeout_multiplier: float = 1.5
 
 
 # COLMAP 재시도 가능한 일시적 오류 패턴
@@ -82,22 +83,24 @@ def _run_colmap(
     max_retries = retry_config.max_retries if retry_config else 0
     base_delay = retry_config.base_delay if retry_config else 5.0
     backoff = retry_config.backoff_multiplier if retry_config else 2.0
+    timeout_mult = retry_config.timeout_multiplier if retry_config else 1.5
 
     cmd = ["colmap", command, *args]
     last_error: RuntimeError | None = None
 
     for attempt in range(max_retries + 1):
+        current_timeout = int(timeout * (timeout_mult**attempt))
         try:
             result = subprocess.run(
                 cmd,
                 capture_output=True,
                 text=True,
                 check=False,
-                timeout=timeout,
+                timeout=current_timeout,
             )
         except subprocess.TimeoutExpired as exc:
             error_msg = (
-                f"COLMAP {command} 시간 초과 ({timeout}초): "
+                f"COLMAP {command} 시간 초과 ({current_timeout}초): "
                 f"이미지 수를 줄이거나 해상도를 낮춰 주세요"
             )
             last_error = RuntimeError(error_msg)
