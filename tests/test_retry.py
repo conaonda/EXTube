@@ -327,8 +327,7 @@ class TestColmapRetryWebSocketNotification:
 
         # publish 호출 중 colmap_retry 단계가 포함된 것이 있는지 확인
         retry_calls = [
-            c for c in mock_redis.publish.call_args_list
-            if "colmap_retry" in str(c)
+            c for c in mock_redis.publish.call_args_list if "colmap_retry" in str(c)
         ]
         assert len(retry_calls) >= 1, (
             "COLMAP 재시도 시 WebSocket 알림이 발행되어야 합니다"

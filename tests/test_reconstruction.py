@@ -618,7 +618,9 @@ class TestRunColmapRetry:
             MagicMock(returncode=0, stdout="ok", stderr=""),
         ]
         config = ColmapRetryConfig(
-            max_retries=2, base_delay=1.0, backoff_multiplier=2.0,
+            max_retries=2,
+            base_delay=1.0,
+            backoff_multiplier=2.0,
         )
         result = _run_colmap("mapper", ["--arg", "val"], retry_config=config)
         assert result.returncode == 0
@@ -629,9 +631,7 @@ class TestRunColmapRetry:
     @patch("src.reconstruction.reconstruction.subprocess.run")
     def test_no_retry_on_non_retryable_error(self, mock_run, mock_sleep):
         """재시도 불가능한 오류 시 즉시 실패."""
-        mock_run.return_value = MagicMock(
-            returncode=1, stderr="Invalid camera model"
-        )
+        mock_run.return_value = MagicMock(returncode=1, stderr="Invalid camera model")
         config = ColmapRetryConfig(max_retries=3)
         with pytest.raises(RuntimeError, match="Invalid camera model"):
             _run_colmap("mapper", ["--arg", "val"], retry_config=config)
@@ -644,7 +644,9 @@ class TestRunColmapRetry:
         """최대 재시도 횟수 초과 시 실패."""
         mock_run.return_value = MagicMock(returncode=1, stderr="CUDA out of memory")
         config = ColmapRetryConfig(
-            max_retries=2, base_delay=1.0, backoff_multiplier=2.0,
+            max_retries=2,
+            base_delay=1.0,
+            backoff_multiplier=2.0,
         )
         with pytest.raises(RuntimeError, match="CUDA out of memory"):
             _run_colmap("mapper", ["--arg", "val"], retry_config=config)
@@ -662,8 +664,10 @@ class TestRunColmapRetry:
         config = ColmapRetryConfig(max_retries=2, base_delay=1.0)
         callback = MagicMock()
         _run_colmap(
-            "feature_extractor", ["--arg", "val"],
-            retry_config=config, retry_callback=callback,
+            "feature_extractor",
+            ["--arg", "val"],
+            retry_config=config,
+            retry_callback=callback,
         )
         callback.assert_called_once()
         args = callback.call_args[0]
@@ -677,13 +681,17 @@ class TestRunColmapRetry:
         """지수 백오프 지연 확인."""
         mock_run.return_value = MagicMock(returncode=1, stderr="out of memory")
         config = ColmapRetryConfig(
-            max_retries=3, base_delay=2.0, backoff_multiplier=3.0,
+            max_retries=3,
+            base_delay=2.0,
+            backoff_multiplier=3.0,
         )
         with pytest.raises(RuntimeError):
             _run_colmap("mapper", [], retry_config=config)
         # delays: 2.0, 6.0, 18.0
         assert mock_sleep.call_args_list == [
-            call(2.0), call(6.0), call(18.0),
+            call(2.0),
+            call(6.0),
+            call(18.0),
         ]
 
 
@@ -735,9 +743,7 @@ class TestReconstructCheckpointResume:
         # 이전 실행에서 feature_extraction까지 완료된 상태 시뮬레이션
         db = workspace / "database.db"
         db.touch()
-        _save_checkpoint(
-            workspace, "feature_extraction", ["feature_extraction"]
-        )
+        _save_checkpoint(workspace, "feature_extraction", ["feature_extraction"])
 
         def side_effect(command, args, **kwargs):
             if command == "mapper":

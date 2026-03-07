@@ -102,10 +102,14 @@ def _run_colmap(
             )
             last_error = RuntimeError(error_msg)
             if attempt < max_retries and is_colmap_retryable_error(error_msg):
-                delay = base_delay * (backoff ** attempt)
+                delay = base_delay * (backoff**attempt)
                 logger.warning(
                     "COLMAP %s 재시도 %d/%d (%.1f초 후): %s",
-                    command, attempt + 1, max_retries, delay, error_msg,
+                    command,
+                    attempt + 1,
+                    max_retries,
+                    delay,
+                    error_msg,
                 )
                 if retry_callback:
                     retry_callback(command, attempt + 1, max_retries, error_msg)
@@ -119,10 +123,14 @@ def _run_colmap(
             )
             last_error = RuntimeError(error_msg)
             if attempt < max_retries and is_colmap_retryable_error(error_msg):
-                delay = base_delay * (backoff ** attempt)
+                delay = base_delay * (backoff**attempt)
                 logger.warning(
                     "COLMAP %s 재시도 %d/%d (%.1f초 후): %s",
-                    command, attempt + 1, max_retries, delay, error_msg,
+                    command,
+                    attempt + 1,
+                    max_retries,
+                    delay,
+                    error_msg,
                 )
                 if retry_callback:
                     retry_callback(command, attempt + 1, max_retries, error_msg)
@@ -405,7 +413,9 @@ def _parse_reconstruction_stats(
 
 
 def _save_checkpoint(
-    workspace_dir: Path, step: str, steps_completed: list[str],
+    workspace_dir: Path,
+    step: str,
+    steps_completed: list[str],
 ) -> None:
     """체크포인트를 저장한다."""
     checkpoint = {"last_completed_step": step, "steps_completed": steps_completed}
@@ -502,8 +512,11 @@ def reconstruct(
         if "feature_extraction" not in completed_set:
             _notify("feature_matching", 0, "특징점 추출 시작")
             feature_extractor(
-                image_dir, database_path, camera_model,
-                retry_config=retry_config, retry_callback=retry_callback,
+                image_dir,
+                database_path,
+                camera_model,
+                retry_config=retry_config,
+                retry_callback=retry_callback,
             )
             steps_completed.append("feature_extraction")
             _save_checkpoint(workspace_dir, "feature_extraction", steps_completed)
@@ -513,7 +526,8 @@ def reconstruct(
             _notify("feature_matching", 50, "특징점 매칭 중")
             exhaustive_matcher(
                 database_path,
-                retry_config=retry_config, retry_callback=retry_callback,
+                retry_config=retry_config,
+                retry_callback=retry_callback,
             )
             steps_completed.append("exhaustive_matching")
             _save_checkpoint(workspace_dir, "exhaustive_matching", steps_completed)
@@ -523,8 +537,11 @@ def reconstruct(
         if "sparse_reconstruction" not in completed_set:
             _notify("reconstruction", 0, "Sparse 복원 시작")
             sparse_reconstructor(
-                database_path, image_dir, sparse_dir,
-                retry_config=retry_config, retry_callback=retry_callback,
+                database_path,
+                image_dir,
+                sparse_dir,
+                retry_config=retry_config,
+                retry_callback=retry_callback,
             )
             steps_completed.append("sparse_reconstruction")
             _save_checkpoint(workspace_dir, "sparse_reconstruction", steps_completed)
