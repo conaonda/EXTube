@@ -1,17 +1,20 @@
-"""QueueManager 활성 작업 추적 테스트."""
+"""QueueManager 활성 작업 추적, 우선순위, 동시실행 제한 테스트."""
 
 from __future__ import annotations
 
 from unittest.mock import MagicMock, patch
 
 import pytest
-from src.api.queue_manager import QueueManager
+from src.api.queue_manager import JobPriority, QueueManager
 
 
 @pytest.fixture
 def mock_redis():
     """Mock Redis 연결."""
     conn = MagicMock()
+    pipe = MagicMock()
+    conn.pipeline.return_value = pipe
+    pipe.execute.return_value = [1, 1]
     return conn
 
 
@@ -20,20 +23,44 @@ def qm(mock_redis):
     """QueueManager 인스턴스."""
     with patch("src.api.queue_manager._settings") as mock_settings:
         mock_settings.redis_url = "redis://localhost:6379"
-        return QueueManager(redis_conn=mock_redis)
+        mock_settings.queue_max_concurrent = 1
+        return QueueManager(redis_conn=mock_redis, max_concurrent=1)
+
+
+class TestEnqueue:
+    """enqueue 테스트."""
+
+    def test_enqueue_returns_position(self, qm, mock_redis):
+        mock_redis.zrank.return_value = 0
+        pos = qm.enqueue("job123", priority=JobPriority.normal)
+        assert pos == 1
+        mock_redis.zadd.assert_called_once()
+
+    def test_high_priority_lower_score(self, qm, mock_redis):
+        mock_redis.zrank.return_value = 0
+        qm.enqueue("job_high", priority=JobPriority.high)
+        high_score = list(mock_redis.zadd.call_args[0][1].values())[0]
+
+        qm.enqueue("job_normal", priority=JobPriority.normal)
+        normal_score = list(mock_redis.zadd.call_args[0][1].values())[0]
+
+        assert high_score < normal_score
+
+    def test_enqueue_not_in_queue(self, qm, mock_redis):
+        mock_redis.zrank.return_value = None
+        pos = qm.enqueue("job123")
+        assert pos == 0  # _get_position returns 0 when not found
 
 
 class TestDequeue:
     """dequeue (활성 등록) 테스트."""
 
-    def test_dequeue_adds_to_active_set(self, qm, mock_redis):
+    def test_dequeue_moves_to_active(self, qm, mock_redis):
+        pipe = mock_redis.pipeline.return_value
         qm.dequeue("job123")
-        mock_redis.sadd.assert_called_once_with("extube:active_jobs", "job123")
-
-    def test_dequeue_multiple_jobs(self, qm, mock_redis):
-        qm.dequeue("job1")
-        qm.dequeue("job2")
-        assert mock_redis.sadd.call_count == 2
+        pipe.zrem.assert_called_once_with("extube:job_queue", "job123")
+        pipe.sadd.assert_called_once_with("extube:active_jobs", "job123")
+        pipe.execute.assert_called_once()
 
 
 class TestComplete:
@@ -47,15 +74,50 @@ class TestComplete:
 class TestCancel:
     """cancel 테스트."""
 
-    def test_cancel_removes_from_active_set(self, qm, mock_redis):
-        mock_redis.srem.return_value = 1
-        qm.cancel("job123")
-        mock_redis.srem.assert_called_once_with("extube:active_jobs", "job123")
+    def test_cancel_removes_from_queue_and_active(self, qm, mock_redis):
+        pipe = mock_redis.pipeline.return_value
+        pipe.execute.return_value = [1, 0]
+        result = qm.cancel("job123")
+        assert result is True
+        pipe.zrem.assert_called_once_with("extube:job_queue", "job123")
+        pipe.srem.assert_called_once_with("extube:active_jobs", "job123")
 
-    def test_cancel_nonexistent_no_error(self, qm, mock_redis):
-        mock_redis.srem.return_value = 0
-        qm.cancel("nonexistent")
-        mock_redis.srem.assert_called_once()
+    def test_cancel_nonexistent(self, qm, mock_redis):
+        pipe = mock_redis.pipeline.return_value
+        pipe.execute.return_value = [0, 0]
+        result = qm.cancel("nonexistent")
+        assert result is False
+
+
+class TestGetStatus:
+    """get_status 테스트."""
+
+    def test_status(self, qm, mock_redis):
+        pipe = mock_redis.pipeline.return_value
+        pipe.execute.return_value = [
+            2,  # zcard
+            {b"active1"},  # smembers
+            [b"wait1", b"wait2"],  # zrange
+        ]
+        status = qm.get_status()
+        assert status["max_concurrent"] == 1
+        assert status["active_count"] == 1
+        assert status["pending_count"] == 2
+        assert len(status["waiting_jobs"]) == 2
+        assert status["waiting_jobs"][0]["position"] == 1
+        assert status["waiting_jobs"][1]["position"] == 2
+
+
+class TestGetPosition:
+    """get_position 테스트."""
+
+    def test_position_exists(self, qm, mock_redis):
+        mock_redis.zrank.return_value = 2
+        assert qm.get_position("job123") == 3
+
+    def test_position_not_in_queue(self, qm, mock_redis):
+        mock_redis.zrank.return_value = None
+        assert qm.get_position("job123") is None
 
 
 class TestGetActiveJobs:
@@ -68,8 +130,7 @@ class TestGetActiveJobs:
 
     def test_empty_set(self, qm, mock_redis):
         mock_redis.smembers.return_value = set()
-        result = qm.get_active_jobs()
-        assert result == set()
+        assert qm.get_active_jobs() == set()
 
 
 class TestGetActiveCount:
@@ -78,6 +139,14 @@ class TestGetActiveCount:
     def test_returns_count(self, qm, mock_redis):
         mock_redis.scard.return_value = 3
         assert qm.get_active_count() == 3
+
+
+class TestJobPriority:
+    """JobPriority enum 테스트."""
+
+    def test_values(self):
+        assert JobPriority.high == "high"
+        assert JobPriority.normal == "normal"
 
 
 class TestRunPipelineIntegration:
@@ -119,7 +188,7 @@ class TestRunPipelineIntegration:
         mock_qm.complete.assert_called_once_with("aabb11223344")
 
     def test_auto_retry_reregisters_in_queue_manager(self):
-        """재시도 시 QueueManager에 재등록 로직이 호출되는지 확인한다."""
+        """재시도 시 QueueManager에 재등록한다."""
         from src.api.tasks import _handle_pipeline_error
 
         mock_store = MagicMock()
@@ -147,9 +216,6 @@ class TestRunPipelineIntegration:
                 "aabbccddeeff", error, mock_store, mock_redis, qm=mock_qm,
             )
 
-        # 재시도 가능 오류이므로 qm에는 별도 호출 없음 (finally에서 complete 호출됨)
-        # 재시도 큐잉 자체는 RQ enqueue_in으로 처리
-
     def test_non_retryable_skips_reregistration(self):
         """재시도 불가 오류 시 QueueManager 재등록이 없다."""
         from src.api.tasks import _handle_pipeline_error
@@ -168,5 +234,3 @@ class TestRunPipelineIntegration:
         _handle_pipeline_error(
             "aabbccddeeff", error, mock_store, mock_redis, qm=mock_qm,
         )
-
-        # ValueError는 재시도 불가 — QueueManager에 재등록하지 않음
