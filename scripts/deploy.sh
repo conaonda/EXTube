@@ -78,5 +78,10 @@ deploy() {
 }
 
 # 메인
+info "프로덕션 설정 검증 중..."
+if ! "$SCRIPT_DIR/validate-prod-config.sh"; then
+    error "프로덕션 설정 검증에 실패했습니다. 위 에러를 수정 후 다시 시도하세요."
+fi
+
 check_prerequisites
 deploy "$@"
