@@ -1,0 +1,118 @@
+rule_files:
+  - extube.yml
+
+evaluation_interval: 1m
+
+tests:
+  # 테스트 1: QueueBacklog — RQ 큐 적체 감지
+  - interval: 1m
+    input_series:
+      - series: 'extube_queue_length'
+        values: '25x15'
+    alert_rule_test:
+      - eval_time: 10m
+        alertname: QueueBacklog
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+            exp_annotations:
+              summary: "RQ 큐 적체 (25개)"
+              description: "10분 이상 큐 길이가 20을 초과했습니다."
+
+  # 테스트 2: QueueBacklog — 정상 범위에서는 알림 없음
+  - interval: 1m
+    input_series:
+      - series: 'extube_queue_length'
+        values: '15x15'
+    alert_rule_test:
+      - eval_time: 10m
+        alertname: QueueBacklog
+        exp_alerts: []
+
+  # 테스트 3: HighErrorRate — 높은 에러율 감지
+  - interval: 1m
+    input_series:
+      - series: 'http_requests_total{status="500"}'
+        values: '0+20x10'
+      - series: 'http_requests_total{status="200"}'
+        values: '0+80x10'
+    alert_rule_test:
+      - eval_time: 10m
+        alertname: HighErrorRate
+        exp_alerts:
+          - exp_labels:
+              severity: critical
+            exp_annotations:
+              summary: "HTTP 에러율 20%"
+              description: "5분간 HTTP 5xx 에러율이 10%를 초과했습니다."
+
+  # 테스트 4: HighErrorRate — 정상 에러율에서는 알림 없음
+  - interval: 1m
+    input_series:
+      - series: 'http_requests_total{status="500"}'
+        values: '0+1x10'
+      - series: 'http_requests_total{status="200"}'
+        values: '0+100x10'
+    alert_rule_test:
+      - eval_time: 10m
+        alertname: HighErrorRate
+        exp_alerts: []
+
+  # 테스트 5: DiskSpaceLow — 디스크 공간 부족 감지
+  - interval: 1m
+    input_series:
+      - series: 'node_filesystem_avail_bytes{mountpoint="/"}'
+        values: '5000000000x10'
+      - series: 'node_filesystem_size_bytes{mountpoint="/"}'
+        values: '100000000000x10'
+    alert_rule_test:
+      - eval_time: 5m
+        alertname: DiskSpaceLow
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              mountpoint: /
+            exp_annotations:
+              summary: "디스크 여유 공간 5%"
+              description: "루트 파티션 여유 공간이 10% 미만입니다."
+
+  # 테스트 6: DiskSpaceLow — 충분한 공간에서는 알림 없음
+  - interval: 1m
+    input_series:
+      - series: 'node_filesystem_avail_bytes{mountpoint="/"}'
+        values: '50000000000x10'
+      - series: 'node_filesystem_size_bytes{mountpoint="/"}'
+        values: '100000000000x10'
+    alert_rule_test:
+      - eval_time: 5m
+        alertname: DiskSpaceLow
+        exp_alerts: []
+
+  # 테스트 7: WorkerDown — Worker 다운 감지
+  - interval: 1m
+    input_series:
+      - series: 'extube_active_jobs'
+        values: '3x10'
+      - series: 'redis_connected_clients'
+        values: '1x10'
+    alert_rule_test:
+      - eval_time: 2m
+        alertname: WorkerDown
+        exp_alerts:
+          - exp_labels:
+              severity: critical
+            exp_annotations:
+              summary: "Worker 프로세스 다운 감지"
+              description: "활성 Job이 있으나 Worker가 감지되지 않습니다."
+
+  # 테스트 8: WorkerDown — 정상 상태에서는 알림 없음
+  - interval: 1m
+    input_series:
+      - series: 'extube_active_jobs'
+        values: '3x10'
+      - series: 'redis_connected_clients'
+        values: '5x10'
+    alert_rule_test:
+      - eval_time: 2m
+        alertname: WorkerDown
+        exp_alerts: []
